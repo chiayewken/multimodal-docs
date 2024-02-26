@@ -1,16 +1,7 @@
-from io import BytesIO
-
-import requests
-from PIL import Image
 from fire import Fire
 from sentence_transformers import SentenceTransformer, util
 
-
-def load_image_from_url(url: str) -> Image.Image:
-    response = requests.get(url)
-    if response.status_code == 200:
-        return Image.open(BytesIO(response.content))
-    raise ValueError(f"Failed to retrieve image. Status code: {response.status_code}")
+from data_loading import load_image_from_url
 
 
 def test_clip(
