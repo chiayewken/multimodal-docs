@@ -32,6 +32,7 @@ class MultimodalObject(BaseModel):
     page: int = 0
     text: str = ""
     image_string: str = ""
+    score: float = 0.0
 
     def get_image(self) -> Optional[Image.Image]:
         if self.image_string:
@@ -44,6 +45,22 @@ class MultimodalObject(BaseModel):
 
 class MultimodalDocument(BaseModel):
     objects: List[MultimodalObject]
+
+    def get_top_objects(self, k: int):
+        # Get top-k in terms of score but maintain the intra-document ordering
+        doc = self.copy(deep=True)
+        objects = sorted(doc.objects, key=lambda x: x.score, reverse=True)
+        threshold = objects[:k][-1].score
+        return MultimodalDocument(
+            objects=[x for x in doc.objects if x.score >= threshold]
+        )
+
+    def print(self):
+        for x in self.objects:
+            x = x.copy(deep=True)
+            if x.image_string:
+                x.image_string = x.image_string[:20] + "..."
+            print(x.json(indent=2))
 
 
 class MultimodalData(BaseModel):
