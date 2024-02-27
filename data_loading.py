@@ -1,5 +1,7 @@
 import base64
 import io
+import json
+from pathlib import Path
 from typing import List, Optional
 
 import requests
@@ -32,6 +34,7 @@ class MultimodalObject(BaseModel):
     page: int = 0
     text: str = ""
     image_string: str = ""
+    snippet: str = ""
     score: float = 0.0
 
     def get_image(self) -> Optional[Image.Image]:
@@ -58,13 +61,41 @@ class MultimodalDocument(BaseModel):
     def print(self):
         for x in self.objects:
             x = x.copy(deep=True)
+            if len(x.text) > 80:
+                x.text = x.text[:80] + "..."
             if x.image_string:
                 x.image_string = x.image_string[:20] + "..."
             print(x.json(indent=2))
 
 
+class MultimodalSample(BaseModel):
+    question: str
+    answer: str
+    doc: MultimodalDocument
+    prompt: MultimodalDocument = MultimodalDocument(objects=[])
+    raw_output: str = ""
+    pred: str = ""
+
+    def print(self):
+        self.doc.print()
+        self.prompt.print()
+        print(self.json(indent=2, exclude={"prompt", "doc"}))
+
+
 class MultimodalData(BaseModel):
-    docs: List[MultimodalDocument]
+    samples: List[MultimodalSample]
+
+    def save(self, path: str):
+        Path(path).parent.mkdir(exist_ok=True, parents=True)
+        with open(path, "w") as f:
+            for s in self.samples:
+                print(s.json(), file=f)
+
+    @classmethod
+    def load(cls, path: str):
+        with open(path) as f:
+            samples = [MultimodalSample(**json.loads(line)) for line in f]
+        return cls(samples=samples)
 
 
 if __name__ == "__main__":
