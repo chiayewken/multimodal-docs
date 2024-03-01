@@ -65,8 +65,16 @@ def show_preds(path: str, path_out: str, image_size=256):
     print(Path(path_out).absolute())
 
 
+def check_empty_texts(*paths: str):
+    for p in paths:
+        with open(p) as f:
+            if f.read().strip() == "":
+                print(dict(empty=p))
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
+p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
 """
 
 

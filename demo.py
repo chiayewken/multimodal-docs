@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pandas as pd
 from PIL import Image
 from fire import Fire
+from tqdm import tqdm
 
 from data_loading import (
     MultimodalDocument,
@@ -12,6 +14,40 @@ from data_loading import (
 )
 from modeling import select_model
 from retrieval import select_retriever
+
+
+def load_demo_data(folder: str):
+    df = pd.read_excel(Path(folder, "captions.xlsx"))
+    mapping = {filename: caption for filename, caption in df.values}
+    objects = []
+
+    for path in sorted(Path(folder).glob("*/*.jpg")):
+        caption = mapping.get(path.name)
+        if caption is not None:
+            objects.append(
+                MultimodalObject(
+                    id=path.name,
+                    text=caption,
+                    image_string=convert_image_to_text(Image.open(path)),
+                )
+            )
+
+    for path in sorted(Path(folder).glob("*/*.txt")):
+        with open(path) as f:
+            text = f.read().strip()
+            if not text:
+                print(dict(empty_text=path))
+                continue
+            objects.append(MultimodalObject(id=path.name, text=text))
+    doc = MultimodalDocument(objects=objects)
+    doc.print()
+
+    samples = []
+    df = pd.read_excel(Path(folder, "questions.xlsx"))
+    for _, text, _ in df.values:
+        question, answer = text.split("Question: ")[1].split("\n\nAnswer: ")
+        samples.append(MultimodalSample(question=question, answer=answer, doc=doc))
+    return MultimodalData(samples=samples)
 
 
 def make_demo_data(folder: str) -> MultimodalData:
@@ -65,11 +101,18 @@ def main(
     output_dir: str = "outputs/demo/acrv",
     **kwargs,
 ):
-    data = make_demo_data(data_dir)
+    try:
+        data = load_demo_data(data_dir)
+    except Exception as e:
+        print(e)
+        print("Using default demo data")
+        data = make_demo_data(data_dir)
+
     generator = select_model(generator_name)
     retriever = select_retriever(retriever_name, **kwargs)
+    path_out = Path(output_dir, generator_name, retriever_name, f"top_k_{top_k}.jsonl")
 
-    for sample in data.samples:
+    for sample in tqdm(data.samples, desc=str(path_out)):
         query = MultimodalObject(text=sample.question)
         sample.prompt = retriever.run(query, doc=sample.doc).get_top_objects(k=top_k)
         sample.prompt.objects.insert(0, query)
@@ -83,8 +126,13 @@ def main(
         sample.raw_output = generator.run(sample.prompt)
         sample.print()
 
-    path_out = Path(output_dir, generator_name, retriever_name, f"top_k_{top_k}.jsonl")
     data.save(str(path_out))
+
+
+"""
+p demo.py main --generator_name openai_vision
+p demo.py main --generator_name openai_vision --data_dir data/demo/NASDAQ_AMLX_2022 --top_k 10 --output_dir outputs/demo/amlx
+"""
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ def load_image_from_url(url: str) -> Image.Image:
 
 
 class MultimodalObject(BaseModel):
+    id: str = ""
     page: int = 0
     text: str = ""
     image_string: str = ""
