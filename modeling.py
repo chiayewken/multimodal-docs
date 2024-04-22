@@ -3,9 +3,9 @@ import time
 from typing import Optional, List
 
 import google.generativeai as genai
+import requests
 from PIL import Image
 from fire import Fire
-from openai import OpenAI
 from pydantic import BaseModel
 
 from data_loading import MultimodalObject, MultimodalDocument, load_image_from_url
@@ -74,23 +74,20 @@ class GeminiVisionModel(GeminiModel):
 class OpenAIModel(EvalModel):
     model_path: str = "openai_info.json"
     timeout: int = 60
-    engine: str = ""
-    client: Optional[OpenAI]
+    info: dict = {}
 
     def load(self):
         with open(self.model_path) as f:
-            info = json.load(f)
-            self.engine = info["engine"]
-            self.client = OpenAI(api_key=info["key"], timeout=self.timeout)
+            self.info = json.load(f)
 
-    def make_messages(self, inputs: MultimodalDocument) -> List[dict]:
+    @staticmethod
+    def make_messages(inputs: MultimodalDocument) -> List[dict]:
         content = []
 
         for x in inputs.objects:
             if x.text:
                 content.append({"type": "text", "text": x.text})
             if x.image_string:
-                assert "vision" in self.engine
                 url = f"data:image/jpeg;base64,{x.image_string}"
                 content.append({"type": "image_url", "image_url": {"url": url}})
 
@@ -103,15 +100,20 @@ class OpenAIModel(EvalModel):
 
         while not output:
             try:
-                response = self.client.chat.completions.create(
-                    model=self.engine,
-                    messages=self.make_messages(inputs),
-                    temperature=self.temperature,
-                    max_tokens=512,
-                )
-                if response.choices[0].finish_reason == "content_filter":
-                    raise ValueError(error_message)
-                output = response.choices[0].message.content
+                url = self.info["url"]
+                headers = {
+                    "content-type": "application/json",
+                    "authorization": f"Bearer {self.info['key']}",
+                }
+
+                data = {
+                    "model": self.info["engine"],
+                    "messages": self.make_messages(inputs),
+                    "max_tokens": 512,
+                }
+
+                response = requests.post(url, headers=headers, json=data)
+                output = response.json()["choices"][0]["message"]["content"]
 
             except Exception as e:
                 print(e)
@@ -124,16 +126,11 @@ class OpenAIModel(EvalModel):
         return output
 
 
-class OpenAIVisionModel(OpenAIModel):
-    model_path = "openai_vision_info.json"
-
-
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
         gemini_vision=GeminiVisionModel,
         openai=OpenAIModel,
-        openai_vision=OpenAIVisionModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -144,8 +141,8 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
 def test_model(
     prompt: str = "Can you describe this image in detail?",
     image_path: str = "",
-    image_url: str = "https://github.com/UKPLab/sentence-transformers/raw/master/examples/applications/image-search/two_dogs_in_snow.jpg",
-    model_name: str = "gemini_vision",
+    image_url: str = "https://english.www.gov.cn/images/202404/20/6622f970c6d0868f1ea91c82.jpeg",
+    model_name: str = "openai",
     **kwargs,
 ):
     model = select_model(model_name, **kwargs)
@@ -165,7 +162,6 @@ def test_model(
 """
 p modeling.py test_model --model_name gemini_vision
 p modeling.py test_model --model_name openai
-p modeling.py test_model --model_name openai_vision
 """
 
 
