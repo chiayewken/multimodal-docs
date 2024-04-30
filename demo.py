@@ -95,7 +95,7 @@ def make_demo_data(folder: str) -> MultimodalData:
 
 def main(
     data_dir: str = "data/demo/acrv",
-    generator_name: str = "gemini_vision",
+    generator_name: str = "openai",
     retriever_name: str = "clip_text",
     top_k: int = 2,
     output_dir: str = "outputs/demo/acrv",
@@ -109,12 +109,12 @@ def main(
         data = make_demo_data(data_dir)
 
     generator = select_model(generator_name)
-    retriever = select_retriever(retriever_name, **kwargs)
+    retriever = select_retriever(retriever_name, top_k=top_k, **kwargs)
     path_out = Path(output_dir, generator_name, retriever_name, f"top_k_{top_k}.jsonl")
 
     for sample in tqdm(data.samples, desc=str(path_out)):
         query = MultimodalObject(text=sample.question)
-        sample.prompt = retriever.run(query, doc=sample.doc).get_top_objects(k=top_k)
+        sample.prompt = retriever.run(query, doc=sample.doc)
         sample.prompt.objects.insert(0, query)
 
         # Avoid "no image in input" error

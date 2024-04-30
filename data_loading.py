@@ -61,15 +61,6 @@ class MultimodalDocument(BaseModel):
     objects: List[MultimodalObject]
     source: str = ""
 
-    def get_top_objects(self, k: int):
-        # Get top-k in terms of score but maintain the intra-document ordering
-        doc = self.copy(deep=True)
-        objects = sorted(doc.objects, key=lambda x: x.score, reverse=True)
-        threshold = objects[:k][-1].score
-        return MultimodalDocument(
-            objects=[x for x in doc.objects if x.score >= threshold]
-        )
-
     def print(self):
         for x in self.objects:
             x = x.copy(deep=True)
@@ -131,9 +122,11 @@ class MultimodalDocument(BaseModel):
         for i, page in enumerate(doc.pages()):
             text = page.get_text()
             if text.strip():
-                parts.append(MultimodalObject(text=text, page=i, source=path))
+                parts.append(MultimodalObject(text=text, page=i + 1, source=path))
             for image in image_map.get(i, []):
-                parts.append(MultimodalObject.from_image(image, page=i, source=path))
+                parts.append(
+                    MultimodalObject.from_image(image, page=i + 1, source=path)
+                )
 
         return cls(objects=parts, source=path)
 
@@ -254,7 +247,9 @@ class MultimodalData(BaseModel):
             )
 
             for raw in group.to_dict(orient="records"):
-                evidence = MultimodalObject(text=raw["file_segmented"], source=path)
+                numbers = [n for n in Path(raw["file_segmented"]).stem.split("_")]
+                page = int(numbers[-2] if numbers[-2].isdigit() else numbers[-1])
+                evidence = MultimodalObject(source=raw["file_segmented"], page=page)
                 if raw["question_correctness"] + raw["answer_correctness"] == "YY":
                     question, answer = raw["QA"].split("\n\nAnswer: ")
                     sample = MultimodalSample(
