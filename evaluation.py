@@ -24,7 +24,9 @@ def main(
     retriever = select_retriever(retriever_name, top_k=top_k, **kwargs)
     path_out = Path(output_dir, generator_name, retriever_name, f"{top_k=}.jsonl")
 
-    for sample in tqdm(data.samples, desc=str(path_out)):
+    progress = tqdm(data.samples, desc=str(path_out))
+    retrieve_success = []
+    for sample in progress:
         query = MultimodalObject(text=sample.question)
         sample.prompt = retriever.run(query, doc=sample.doc)
         sample.prompt.objects.insert(0, query)
@@ -47,10 +49,14 @@ def main(
         )
         print(json.dumps(info, indent=2))
         data.save(str(path_out))
+        retrieve_success.append(info["retrieve_success"])
+        progress.set_postfix(retrieve=sum(retrieve_success) / len(retrieve_success))
 
 
 """
 p evaluation.py main
+p evaluation.py main --output_dir outputs/dummy_eval
+p evaluation.py main --output_dir outputs/dummy_eval --retriever_name bm25_page
 """
 
 

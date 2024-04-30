@@ -4,6 +4,7 @@ import numpy as np
 from fire import Fire
 from nltk import sent_tokenize
 from pydantic import BaseModel
+from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
 
@@ -151,11 +152,50 @@ class PageRetriever(ClipTextRetriever):
         return doc
 
 
+class BM25PageRetriever(MultimodalRetriever):
+    cache: Dict[str, BM25Okapi] = {}
+
+    def load_ranker(self, doc: MultimodalDocument) -> BM25Okapi:
+        corpus = [o.text.split() for o in doc.objects]
+        key = str(corpus)
+        if key not in self.cache:
+            self.cache[key] = BM25Okapi(corpus)
+
+        return self.cache[key]
+
+    def run(
+        self, query: MultimodalObject, doc: MultimodalDocument
+    ) -> MultimodalDocument:
+        doc = doc.copy(deep=True)
+        ranker = self.load_ranker(doc)
+        scores = ranker.get_scores(query.text.split())
+
+        # Assign the relevance of each page as the top-scoring object
+        page_scores = {}
+        assert len(scores) == len(doc.objects)
+        for i, o in enumerate(doc.objects):
+            assert o.page != 0
+            o.score = scores[i]
+            page_scores.setdefault(o.page, 0)
+            page_scores[o.page] = max(page_scores[o.page], o.score)
+
+        top_pages = sorted(page_scores, key=lambda p: page_scores[p])[-self.top_k :]
+        doc.objects = [x for x in doc.objects if x.page in top_pages]
+        print(dict(query=query.text))
+        for o in doc.objects:
+            if o.score == page_scores[o.page] and o.page in top_pages:
+                print(dict(page=o.page, top_text=o.text, score=o.score))
+
+        return doc
+
+
 def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
     if name == "clip_text":
         return ClipTextRetriever(**kwargs)
     elif name == "page":
         return PageRetriever(**kwargs)
+    elif name == "bm25_page":
+        return BM25PageRetriever(**kwargs)
     raise KeyError(name)
 
 
