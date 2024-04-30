@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Optional
 
+import fitz
 import pandas as pd
 import requests
 from PIL import Image
@@ -14,6 +15,8 @@ from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import PDFReader
 from pydantic import BaseModel
 from tqdm import tqdm
+
+from reading import get_doc_images
 
 
 def convert_image_to_text(image: Image) -> str:
@@ -119,6 +122,32 @@ class MultimodalDocument(BaseModel):
             raise ValueError(f"No multimodal parts found in {folder}")
         return cls(objects=sorted(parts, key=lambda p: p.page), source=folder)
 
+    @classmethod
+    def load_from_pdf(cls, path: str):
+        doc = fitz.open(path)
+        image_map = get_doc_images(doc)
+        parts = []
+
+        for i, page in enumerate(doc.pages()):
+            text = page.get_text()
+            if text.strip():
+                parts.append(MultimodalObject(text=text, page=i, source=path))
+            for image in image_map.get(i, []):
+                parts.append(MultimodalObject.from_image(image, page=i, source=path))
+
+        return cls(objects=parts, source=path)
+
+    def as_pages(self) -> List["MultimodalDocument"]:
+        num_pages = max(o.page for o in self.objects) + 1
+        groups = {i: [] for i in range(num_pages)}
+        for o in self.objects:
+            groups[o.page].append(o)
+
+        return [
+            MultimodalDocument(objects=groups[i], source=self.source)
+            for i in sorted(groups)
+        ]
+
 
 def test_load_from_folder(
     data_dir: str = "raw_data/annotation_first_step",
@@ -206,7 +235,36 @@ class MultimodalData(BaseModel):
                         source=path,
                     )
                     samples.append(sample)
-                    print(sample.json(indent=2, exclude={"doc"}))
+
+        print(dict(path=path, samples=len(samples)))
+        return cls(samples=samples)
+
+    @classmethod
+    def load_from_excel_and_pdf(
+        cls, path: str, pdf_dir: str = "raw_data/annual_reports_2022_selected"
+    ) -> "MultimodalData":
+        df = pd.read_excel(path)
+        pd.set_option("display.max_columns", None)
+
+        samples = []
+        for name, group in df.groupby("pdf_file"):
+            assert isinstance(name, str)
+            doc = MultimodalDocument.load_from_pdf(
+                path=str(Path(pdf_dir, name).with_suffix(".pdf"))
+            )
+
+            for raw in group.to_dict(orient="records"):
+                evidence = MultimodalObject(text=raw["file_segmented"], source=path)
+                if raw["question_correctness"] + raw["answer_correctness"] == "YY":
+                    question, answer = raw["QA"].split("\n\nAnswer: ")
+                    sample = MultimodalSample(
+                        question=question.split("Question: ")[-1].strip(),
+                        answer=answer.strip(),
+                        evidence=MultimodalDocument(objects=[evidence]),
+                        doc=doc,
+                        source=path,
+                    )
+                    samples.append(sample)
 
         print(dict(path=path, samples=len(samples)))
         return cls(samples=samples)

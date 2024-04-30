@@ -11,6 +11,7 @@ from data_loading import (
     convert_text_to_image,
     MultimodalSample,
     MultimodalData,
+    MultimodalDocument,
 )
 from reading import get_doc_images
 
@@ -101,11 +102,43 @@ def test_pdf_reader(path: str, path_out: str = "example.pdf"):
     print(Path(path_out).absolute())
 
 
+def test_load_from_pdf(
+    path: str = "raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf",
+    path_out: str = "example.pdf",
+):
+    template = SimpleDocTemplate(str(path_out))
+    story = []
+    doc = MultimodalDocument.load_from_pdf(path)
+
+    for i, page in enumerate(doc.as_pages()):  # iterate the document pages
+        story.append(Paragraph(f"<b>Page {i}</b>"))
+        for o in page.objects:
+            if o.text:
+                story.append(Paragraph(f"<b>Text</b>"))
+                story.append(Paragraph(o.text))
+            if o.image_string:
+                story.append(load_doc_image(o.image_string, 256))
+
+    template.build(story)
+    print(Path(path_out).absolute())
+
+
+def test_load_from_excel_and_pdf(
+    path: str = "data/财报标注-0416.xlsx",
+    pdf_dir: str = "raw_data/annual_reports_2022_selected",
+):
+    data = MultimodalData.load_from_excel_and_pdf(path, pdf_dir=pdf_dir)
+    data.analyze()
+    breakpoint()
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
 p analysis.py show_preds outputs/eval/openai/clip_page/top_k=3.jsonl --path_out renders/openai_clip_page_3.pdf
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
+p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
+p analysis.py test_load_from_excel_and_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 """
 
 
