@@ -1,7 +1,9 @@
 import io
 from pathlib import Path
 
+import fitz  # imports the pymupdf library
 from fire import Fire
+from reportlab.platypus import SimpleDocTemplate, Image as DocImage, Paragraph
 from sentence_transformers import SentenceTransformer, util
 
 from data_loading import (
@@ -10,8 +12,7 @@ from data_loading import (
     MultimodalSample,
     MultimodalData,
 )
-
-from reportlab.platypus import SimpleDocTemplate, Image as DocImage, Paragraph
+from reading import get_doc_images
 
 
 def test_clip(
@@ -40,19 +41,21 @@ def load_doc_image(text: str, size: int) -> DocImage:
     image = convert_text_to_image(text)
     content = io.BytesIO()
     image.save(content, format=image.format)
-    return DocImage(content, width=size, height=size)
+    height = size * image.height // image.width
+    return DocImage(content, width=size, height=height)
 
 
 def show_preds(path: str, path_out: str, image_size=256):
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
-    doc = SimpleDocTemplate(str(path_out), pagesize=(5.5 * 72, 25.5 * 72))
+    doc = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
     story = []
 
     sample: MultimodalSample
     for i, sample in enumerate(MultimodalData.load(path).samples):
         sample.print()
-        story.append(Paragraph(f"<b>Prompt</b>:"))
+        story.append(Paragraph(f"<b>Prompt for {sample.doc.source}</b>:"))
         for x in sample.prompt.objects:
+            story.append(Paragraph(f"<b>Page {x.page}</b>:"))
             if x.text:
                 story.append(Paragraph(x.text))
             if x.image_string:
@@ -72,9 +75,37 @@ def check_empty_texts(*paths: str):
                 print(dict(empty=p))
 
 
+def test_pdf_reader(path: str, path_out: str = "example.pdf"):
+    template = SimpleDocTemplate(str(path_out))
+    story = []
+
+    # PyMuPDF is better than pypdf as pypdf sometimes joins words together
+    doc = fitz.open(path)  # open a document
+    image_map = get_doc_images(doc)
+
+    for i, page in enumerate(doc.pages()):  # iterate the document pages
+        text = page.get_text()  # get plain text encoded as UTF-8
+        print(text)
+
+        story.append(Paragraph(f"<b>Page {i}</b>"))
+        story.append(Paragraph(f"<b>Text</b>"))
+        story.append(Paragraph(text))
+
+        for image in image_map.get(i, []):
+            story.append(Paragraph(f"<b>Image</b>"))
+            content = io.BytesIO()
+            image.save(content, format=image.format)
+            story.append(DocImage(content, width=256, height=256))
+
+    template.build(story)
+    print(Path(path_out).absolute())
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
+p analysis.py show_preds outputs/eval/openai/clip_page/top_k=3.jsonl --path_out renders/openai_clip_page_3.pdf
+p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 """
 
 
