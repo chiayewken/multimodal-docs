@@ -3,7 +3,12 @@ from pathlib import Path
 
 import fitz  # imports the pymupdf library
 from fire import Fire
-from reportlab.platypus import SimpleDocTemplate, Image as DocImage, Paragraph
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Image as DocImage,
+    Paragraph,
+    PageBreak,
+)
 from sentence_transformers import SentenceTransformer, util
 
 from data_loading import (
@@ -50,6 +55,7 @@ def show_preds(path: str, path_out: str, image_size=256):
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
     doc = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
     story = []
+    retrieve_success = []
 
     sample: MultimodalSample
     for i, sample in enumerate(MultimodalData.load(path).samples):
@@ -64,9 +70,16 @@ def show_preds(path: str, path_out: str, image_size=256):
 
         story.append(Paragraph(f"<b>Gold Answer</b>: {sample.answer}"))
         story.append(Paragraph(f"<b>Raw Output</b>: {sample.raw_output}"))
+        story.append(Paragraph(f"<b>Evidence</b>: {sample.evidence.objects[0].page}"))
+        retrieve_success.append(
+            sample.evidence.objects[0].page in [o.page for o in sample.prompt.objects]
+        )
+        story.append(Paragraph(f"<b>Retrieve Success</b>: {retrieve_success[-1]}"))
+        story.append(PageBreak())
 
     doc.build(story)
     print(Path(path_out).absolute())
+    print(dict(retrieve_success=sum(retrieve_success) / len(retrieve_success)))
 
 
 def check_empty_texts(*paths: str):
@@ -135,7 +148,8 @@ def test_load_from_excel_and_pdf(
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
-p analysis.py show_preds outputs/eval/openai/clip_page/top_k=3.jsonl --path_out renders/openai_clip_page_3.pdf
+p analysis.py show_preds outputs/eval/openai/page/top_k=3.jsonl --path_out renders/openai_page_top_k=3.pdf
+p analysis.py show_preds outputs/eval/openai/bm25_page/top_k=3.jsonl --path_out renders/openai_bm25_page_top_k=3.pdf
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_excel_and_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf

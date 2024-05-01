@@ -142,7 +142,11 @@ class PageRetriever(ClipTextRetriever):
             page_scores[o.page] = max(page_scores[o.page], o.score)
 
         top_pages = sorted(page_scores, key=lambda p: page_scores[p])[-self.top_k :]
-        doc.objects = [x for x in doc.objects if x.page in top_pages]
+        doc.objects = [
+            x
+            for x in doc.objects
+            if (x.page in top_pages or (x.page - 1 in top_pages and x.image_string))
+        ]
         print(dict(query=query.text))
         for objects in groups.values():
             for o in objects:
@@ -180,7 +184,11 @@ class BM25PageRetriever(MultimodalRetriever):
             page_scores[o.page] = max(page_scores[o.page], o.score)
 
         top_pages = sorted(page_scores, key=lambda p: page_scores[p])[-self.top_k :]
-        doc.objects = [x for x in doc.objects if x.page in top_pages]
+        doc.objects = [
+            x
+            for x in doc.objects
+            if (x.page in top_pages or (x.page - 1 in top_pages and x.image_string))
+        ]
         print(dict(query=query.text))
         for o in doc.objects:
             if o.score == page_scores[o.page] and o.page in top_pages:

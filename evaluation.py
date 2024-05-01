@@ -55,6 +55,7 @@ def main(
 
 """
 p evaluation.py main
+p evaluation.py main --retriever_name bm25_page
 p evaluation.py main --output_dir outputs/dummy_eval
 p evaluation.py main --output_dir outputs/dummy_eval --retriever_name bm25_page
 """
