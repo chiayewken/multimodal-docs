@@ -1,7 +1,9 @@
 import io
 from pathlib import Path
 
+# noinspection PyPackageRequirements
 import fitz  # imports the pymupdf library
+import pandas as pd
 from fire import Fire
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -143,6 +145,26 @@ def test_load_from_excel_and_pdf(
     data = MultimodalData.load_from_excel_and_pdf(path, pdf_dir=pdf_dir)
     data.analyze()
     breakpoint()
+
+
+def read_index(path: str = "data/nyse.txt"):
+    # https://www.annualreports.com/Companies?exch=1
+    # https://uk.marketscreener.com/quote/index/MSCI-WORLD-107361487/components/
+    records = []
+    with open(path) as f:
+        content = f.read().replace("\nRequest", "Request\n")
+        for i, chunk in enumerate(content.split("\n\n")):
+            if i == 0 or "Request" in chunk:
+                continue  # Skip header
+            if len(chunk.split("\n")) != 3:
+                continue
+            a, b, c = chunk.split("\n")
+            records.append(dict(name=a.strip(), industry=b.strip(), sector=c.strip()))
+
+    df = pd.DataFrame(records)
+    print(df.shape)
+    pd.set_option("display.max_rows", None)
+    print(df.sample(100, random_state=0))
 
 
 """
