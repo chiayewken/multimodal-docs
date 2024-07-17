@@ -1,55 +1,56 @@
-import json
+import os
 import time
-from typing import Optional, List
+from typing import Optional, List, Union
 
 import google.generativeai as genai
-import requests
 from PIL import Image
+from anthropic import Anthropic
+from dotenv import load_dotenv
 from fire import Fire
+from openai import OpenAI
 from pydantic import BaseModel
 
-from data_loading import MultimodalObject, MultimodalDocument, load_image_from_url
+from data_loading import load_image_from_url, convert_image_to_text
+
+
+def get_environment_key(path: str, name: str) -> str:
+    assert os.path.exists(path), f"Path {path} does not exist"
+    load_dotenv(path)
+    return os.environ[name]
 
 
 class EvalModel(BaseModel, arbitrary_types_allowed=True):
-    model_path: str
+    engine: str
     temperature: float = 0.0
+    max_output_tokens: int = 512
 
-    def run(self, inputs: MultimodalDocument) -> str:
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         raise NotImplementedError
 
 
 class GeminiModel(EvalModel):
-    model_path: str = "gemini_info.json"
+    engine: str = "gemini-1.5-pro-001"
     timeout: int = 60
-    model: Optional[genai.GenerativeModel]
+    client: Optional[genai.GenerativeModel]
 
     def load(self):
-        if self.model is None:
-            with open(self.model_path) as f:
-                info = json.load(f)
-                genai.configure(api_key=info["key"])
-                self.model = genai.GenerativeModel(info["engine"])
+        if self.client is None:
+            genai.configure(api_key=get_environment_key(".env", "GEMINI_KEY"))
+            self.client = genai.GenerativeModel(self.engine)
 
-    def run(self, inputs: MultimodalDocument) -> str:
+    def run(self, inputs: Union[str, Image.Image]) -> str:
         self.load()
         output = ""
         config = genai.types.GenerationConfig(
             candidate_count=1,
             temperature=self.temperature,
+            max_output_tokens=self.max_output_tokens,
         )
-
-        content = []
-        for x in inputs.objects:
-            if x.text:
-                content.append(x.text)
-            if x.image_string:
-                content.append(x.get_image())
 
         while not output:
             try:
-                response = self.model.generate_content(
-                    content, generation_config=config
+                response = self.client.generate_content(
+                    inputs, generation_config=config
                 )
                 if "block_reason" in str(vars(response)):
                     output = str(vars(response))
@@ -67,53 +68,53 @@ class GeminiModel(EvalModel):
         return output
 
 
-class GeminiVisionModel(GeminiModel):
-    model_path = "gemini_vision_info.json"
-
-
 class OpenAIModel(EvalModel):
-    model_path: str = "openai_info.json"
     timeout: int = 60
-    info: dict = {}
+    engine: str = "gpt-4o-2024-05-13"
+    client: Optional[OpenAI] = None
 
     def load(self):
-        with open(self.model_path) as f:
-            self.info = json.load(f)
+        if self.client is None:
+            key = get_environment_key(".env", "OPENAI_KEY")
+            self.client = OpenAI(api_key=key, timeout=self.timeout)
 
     @staticmethod
-    def make_messages(inputs: MultimodalDocument) -> List[dict]:
-        content = []
+    def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
+        outputs = []
 
-        for x in inputs.objects:
-            if x.text:
-                content.append({"type": "text", "text": x.text})
-            if x.image_string:
-                url = f"data:image/jpeg;base64,{x.image_string}"
-                content.append({"type": "image_url", "image_url": {"url": url}})
+        for x in inputs:
+            if isinstance(x, str):
+                outputs.append(dict(type="text", text=x))
+            elif isinstance(x, Image.Image):
+                outputs.append(
+                    dict(
+                        type="image_url",
+                        image_url=dict(
+                            url=f"data:image/png;base64,{convert_image_to_text(x)}"
+                        ),
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported input type: {type(x)}")
 
-        return [{"role": "user", "content": content}]
+        return [dict(role="user", content=outputs)]
 
-    def run(self, inputs: MultimodalDocument) -> str:
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         self.load()
         output = ""
         error_message = "The response was filtered"
 
         while not output:
             try:
-                url = self.info["url"]
-                headers = {
-                    "content-type": "application/json",
-                    "authorization": f"Bearer {self.info['key']}",
-                }
-
-                data = {
-                    "model": self.info["engine"],
-                    "messages": self.make_messages(inputs),
-                    "max_tokens": 512,
-                }
-
-                response = requests.post(url, headers=headers, json=data)
-                output = response.json()["choices"][0]["message"]["content"]
+                response = self.client.chat.completions.create(
+                    model=self.engine,
+                    messages=self.make_messages(inputs),
+                    temperature=self.temperature,
+                    max_tokens=self.max_output_tokens,
+                )
+                if response.choices[0].finish_reason == "content_filter":
+                    raise ValueError(error_message)
+                output = response.choices[0].message.content
 
             except Exception as e:
                 print(e)
@@ -126,11 +127,68 @@ class OpenAIModel(EvalModel):
         return output
 
 
+class ClaudeModel(EvalModel):
+    timeout: int = 60
+    engine: str = "claude-3-5-sonnet-20240620"
+    client: Optional[Anthropic] = None
+
+    def load(self):
+        if self.client is None:
+            key = get_environment_key(".env", "CLAUDE_KEY")
+            self.client = Anthropic(api_key=key, timeout=self.timeout)
+
+    @staticmethod
+    def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
+        outputs = []
+
+        for x in inputs:
+            if isinstance(x, str):
+                outputs.append(dict(type="text", text=x))
+            elif isinstance(x, Image.Image):
+                data = dict(
+                    type="image",
+                    source=dict(
+                        type="base64",
+                        media_type="image/png",
+                        data=convert_image_to_text(x),
+                    ),
+                )
+                outputs.append(data)
+            else:
+                raise ValueError(f"Unsupported input type: {type(x)}")
+
+        return [dict(role="user", content=outputs)]
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        output = ""
+        error_message = "The response was filtered"
+
+        while not output:
+            try:
+                response = self.client.messages.create(
+                    model=self.engine,
+                    messages=self.make_messages(inputs),
+                    temperature=self.temperature,
+                    max_tokens=self.max_output_tokens,
+                )
+                output = response.content[0].text
+
+            except Exception as e:
+                print(e)
+                if error_message in str(e):
+                    output = error_message
+
+            if not output:
+                print("ClaudeModel request failed, retrying.")
+        return output
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
-        gemini_vision=GeminiVisionModel,
         openai=OpenAIModel,
+        claude=ClaudeModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -153,9 +211,7 @@ def test_model(
     else:
         image = load_image_from_url(image_url)
 
-    inputs = MultimodalDocument(
-        objects=[MultimodalObject(text=prompt), MultimodalObject.from_image(image)]
-    )
+    inputs = [prompt, image]
     print(model.run(inputs))
 
 
