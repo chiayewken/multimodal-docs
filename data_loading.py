@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Optional
 
+# noinspection PyPackageRequirements
 import fitz
 import pandas as pd
 import requests
@@ -127,6 +128,30 @@ class MultimodalDocument(BaseModel):
                 parts.append(
                     MultimodalObject.from_image(image, page=i + 1, source=path)
                 )
+
+        return cls(objects=parts, source=path)
+
+    @classmethod
+    def load_from_pdf_new(cls, path: str, dpi: int = 150):
+        # Each page as an image (with optional extracted text)
+        doc = fitz.open(path)
+        parts = []
+
+        for i, page in enumerate(tqdm(doc.pages(), desc=path)):
+            text = page.get_text()
+            zoom = dpi / 72  # 72 is the default DPI
+            matrix = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=matrix)
+            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            parts.append(
+                MultimodalObject(
+                    id=f"{Path(path).stem}_page_{i + 1}",
+                    text=text,
+                    page=i + 1,
+                    source=path,
+                    image_string=convert_image_to_text(image),
+                )
+            )
 
         return cls(objects=parts, source=path)
 

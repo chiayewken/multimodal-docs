@@ -1,4 +1,5 @@
 import io
+import random
 from pathlib import Path
 
 # noinspection PyPackageRequirements
@@ -167,6 +168,28 @@ def read_index(path: str = "data/nyse.txt"):
     print(df.sample(100, random_state=0))
 
 
+def test_read_pdf_new(path: str = "data/reports/NYSE_HI_2023.pdf"):
+    doc = MultimodalDocument.load_from_pdf_new(path)
+    path_out = Path("renders", Path(path).name)
+    Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+
+    story = []
+    random.seed(0)
+    objects = sorted(random.sample(doc.objects, 10), key=lambda x: x.page)
+    for x in objects:
+        story.append(Paragraph(f"<b>Page {x.id}</b>:"))
+        image = convert_text_to_image(x.image_string)
+        story.append(Paragraph(f"<b>Image {image.size}</b>:"))
+        story.append(load_doc_image(x.image_string, size=256))
+        story.append(Paragraph(f"<b>Text</b>:"))
+        story.append(Paragraph(x.text))
+        story.append(PageBreak())
+
+    template = SimpleDocTemplate(str(path_out))
+    template.build(story)
+    print(Path(path_out).absolute())
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
@@ -175,6 +198,7 @@ p analysis.py show_preds outputs/eval/openai/bm25_page/top_k=3.jsonl --path_out 
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_excel_and_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
+p analysis.py test_read_pdf_new
 """
 
 
