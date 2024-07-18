@@ -1,8 +1,6 @@
 import base64
 import io
 import json
-import random
-from collections import Counter
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,7 +10,6 @@ import pandas as pd
 import requests
 from PIL import Image
 from fire import Fire
-from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import PDFReader
 from pydantic import BaseModel
 from tqdm import tqdm
@@ -60,7 +57,6 @@ class MultimodalObject(BaseModel):
 
 class MultimodalDocument(BaseModel):
     objects: List[MultimodalObject]
-    source: str = ""
 
     def print(self):
         for x in self.objects:
@@ -161,10 +157,20 @@ class MultimodalDocument(BaseModel):
         for o in self.objects:
             groups[o.page].append(o)
 
-        return [
-            MultimodalDocument(objects=groups[i], source=self.source)
-            for i in sorted(groups)
-        ]
+        return [MultimodalDocument(objects=groups[i]) for i in sorted(groups)]
+
+    @classmethod
+    def load(cls, path: str):
+        objects = []
+        with open(path) as f:
+            for line in f:
+                objects.append(MultimodalObject(**json.loads(line)))
+        return cls(objects=objects)
+
+    def save(self, path: str):
+        with open(path, "w") as f:
+            for o in self.objects:
+                print(o.json(), file=f)
 
 
 def test_load_from_folder(
@@ -194,17 +200,12 @@ def test_load_from_folder(
 class MultimodalSample(BaseModel):
     question: str
     answer: str
-    doc: MultimodalDocument
-    evidence: MultimodalDocument = MultimodalDocument(objects=[])
-    prompt: MultimodalDocument = MultimodalDocument(objects=[])
+    evidence_pages: List[int] = []
+    prompt: List[MultimodalObject] = []
     raw_output: str = ""
     pred: str = ""
     source: str = ""
-
-    def print(self):
-        self.doc.print()
-        self.prompt.print()
-        print(self.json(indent=2, exclude={"prompt", "doc"}))
+    annotator: str = ""
 
 
 class MultimodalData(BaseModel):
@@ -222,121 +223,20 @@ class MultimodalData(BaseModel):
             samples = [MultimodalSample(**json.loads(line)) for line in f]
         return cls(samples=samples)
 
-    @classmethod
-    def load_from_excel(
-        cls,
-        path: str,
-        data_dir: str = "raw_data/annotation_first_step",
-        pdf_dir: str = "raw_data/annual_reports_2022_selected",
-    ):
-        df = pd.read_excel(path)
-        pd.set_option("display.max_columns", None)
 
-        samples = []
-        for name, group in df.groupby("pdf_file"):
-            assert isinstance(name, str)
-            doc = MultimodalDocument.load_from_folder(
-                folder=str(Path(data_dir, name)), folder_pdf=pdf_dir
-            )
-            evidence_map = {Path(o.source).name: [o] for o in doc.objects}
-
-            for raw in group.to_dict(orient="records"):
-                if raw["question_correctness"] + raw["answer_correctness"] == "YY":
-                    question, answer = raw["QA"].split("\n\nAnswer: ")
-                    sample = MultimodalSample(
-                        question=question.split("Question: ")[-1].strip(),
-                        answer=answer.strip(),
-                        evidence=MultimodalDocument(
-                            objects=evidence_map.get(raw["file_segmented"], [])
-                        ),
-                        doc=doc,
-                        source=path,
-                    )
-                    samples.append(sample)
-
-        print(dict(path=path, samples=len(samples)))
-        return cls(samples=samples)
-
-    @classmethod
-    def load_from_excel_and_pdf(
-        cls, path: str, pdf_dir: str = "raw_data/annual_reports_2022_selected"
-    ) -> "MultimodalData":
-        df = pd.read_excel(path)
-        pd.set_option("display.max_columns", None)
-
-        samples = []
-        for name, group in df.groupby("pdf_file"):
-            assert isinstance(name, str)
-            doc = MultimodalDocument.load_from_pdf(
-                path=str(Path(pdf_dir, name).with_suffix(".pdf"))
-            )
-
-            for raw in group.to_dict(orient="records"):
-                numbers = [n for n in Path(raw["file_segmented"]).stem.split("_")]
-                page = int(numbers[-2] if numbers[-2].isdigit() else numbers[-1])
-                evidence = MultimodalObject(source=raw["file_segmented"], page=page)
-                if raw["question_correctness"] + raw["answer_correctness"] == "YY":
-                    question, answer = raw["QA"].split("\n\nAnswer: ")
-                    sample = MultimodalSample(
-                        question=question.split("Question: ")[-1].strip(),
-                        answer=answer.strip(),
-                        evidence=MultimodalDocument(objects=[evidence]),
-                        doc=doc,
-                        source=path,
-                    )
-                    samples.append(sample)
-
-        print(dict(path=path, samples=len(samples)))
-        return cls(samples=samples)
-
-    def analyze(self):
-        random.seed(0)
-        sample: MultimodalSample
-        for sample in random.sample(self.samples, k=5):
-            e = sample.evidence.objects[0]
-            lst = [(o.text, o.source) for o in sample.doc.objects if o.page == e.page]
-
-            raw = dict(
-                page_objects=lst,
-                question=sample.question,
-                answer=sample.answer,
-                evidence=e.text,
-                source=sample.doc.source,
-                page=e.page,
-            )
-            print(json.dumps(raw, indent=2))
-
-        info = dict(
-            samples=len(self.samples),
-            sources=str(Counter(s.doc.source for s in self.samples)),
-            with_evidence=sum(len(s.evidence.objects) > 0 for s in self.samples),
-        )
-        print(json.dumps(info, indent=2))
-
-
-def test_load_from_excel(path: str = "data/财报标注-0416.xlsx"):
-    data = MultimodalData.load_from_excel(path)
-    data.analyze()
-    breakpoint()
-
-
-def test_read_pdf(
-    path: str = "raw_data/annual_reports_2022_selected/NASDAQ_ACRV_2022.pdf",
-):
-    reader = SimpleDirectoryReader(input_files=[path])
-    data: List[Document] = reader.load_data()
-    print(len(data))
-
-    reader2 = PDFReader()
-    data2 = reader2.load_data(Path(path))
-    assert len(data) == len(data2)
-    for a, b in zip(data, data2):
-        assert a.text == b.text
-    breakpoint()
+def process_documents(*paths: str, output_dir: str = "data/docs"):
+    # Parse the pdfs into images and convert to json format
+    for p in tqdm(paths):
+        doc = MultimodalDocument.load_from_pdf_new(p)
+        path_out = Path(output_dir, Path(p).stem).with_suffix(".json")
+        path_out.parent.mkdir(parents=True, exist_ok=True)
+        doc.save(str(path_out))
+        print(dict(path_out=str(path_out), pages=len(doc.objects)))
 
 
 """
 p data_loading.py test_load_from_excel 
+p data_loading.py process_documents data/reports/*.pdf
 """
 
 
