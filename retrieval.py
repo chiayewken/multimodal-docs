@@ -1,14 +1,23 @@
 from typing import Optional, List, Dict
 
 import numpy as np
+import torch
+from PIL import Image
 from fire import Fire
 from nltk import sent_tokenize
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
+from torch import nn
+from torch.utils.data import DataLoader
+from transformers import (
+    PaliGemmaPreTrainedModel,
+    PaliGemmaForConditionalGeneration,
+    PaliGemmaProcessor,
+)
 
-from data_loading import MultimodalObject, MultimodalDocument, load_image_from_url
+from data_loading import MultimodalObject, MultimodalDocument
 from modeling import OpenAIModel
 
 
@@ -197,6 +206,178 @@ class BM25PageRetriever(MultimodalRetriever):
         return doc
 
 
+class ColPali(PaliGemmaPreTrainedModel):
+    def __init__(self, config):
+        super(ColPali, self).__init__(config=config)
+        self.model: PaliGemmaForConditionalGeneration = (
+            PaliGemmaForConditionalGeneration(config)
+        )
+        self.dim = 128
+        self.custom_text_proj = nn.Linear(
+            self.model.config.text_config.hidden_size, self.dim
+        )
+        self.main_input_name = "doc_input_ids"
+
+    def forward(self, *args, **kwargs):
+        """
+        Forward pass through Llama and the linear layer for dimensionality reduction
+
+        Args:
+        - input_ids (torch.LongTensor): The input tokens tensor.
+        - attention_mask (torch.LongTensor): The attention mask tensor.
+
+        Returns:
+        - torch.Tensor: Embeddings of shape (batch_size, num_tokens, dim)
+        """
+        outputs = self.model(*args, output_hidden_states=True, **kwargs)
+        last_hidden_states = outputs.hidden_states[
+            -1
+        ]  # (batch_size, sequence_length, hidden_size)
+        proj = self.custom_text_proj(last_hidden_states)
+        # normalize l2 norm
+        proj = proj / proj.norm(dim=-1, keepdim=True)
+        proj = proj * kwargs["attention_mask"].unsqueeze(-1)
+        return proj
+
+
+class CustomEvaluator:
+    def evaluate(self, qs, ps):
+        scores = self.evaluate_colbert(qs, ps)
+        assert scores.shape[0] == len(qs)
+        scores = scores.to(torch.float32).cpu().numpy()
+        return scores
+
+    @staticmethod
+    def evaluate_colbert(qs, ps, batch_size=128) -> torch.Tensor:
+        scores = []
+        for i in range(0, len(qs), batch_size):
+            scores_batch = []
+            qs_batch = torch.nn.utils.rnn.pad_sequence(
+                qs[i : i + batch_size], batch_first=True, padding_value=0
+            ).to("cuda")
+            for j in range(0, len(ps), batch_size):
+                ps_batch = torch.nn.utils.rnn.pad_sequence(
+                    ps[j : j + batch_size], batch_first=True, padding_value=0
+                ).to("cuda")
+                scores_batch.append(
+                    torch.einsum("bnd,csd->bcns", qs_batch, ps_batch)
+                    .max(dim=3)[0]
+                    .sum(dim=2)
+                )
+            scores_batch = torch.cat(scores_batch, dim=1).cpu()
+            scores.append(scores_batch)
+        scores = torch.cat(scores, dim=0)
+        return scores
+
+
+class ColpaliRetriever(MultimodalRetriever):
+    model: Optional[ColPali] = None
+    processor: Optional[PaliGemmaProcessor] = None
+    device: str = "cuda"
+
+    def load(self):
+        if self.model is None:
+            self.model = ColPali.from_pretrained(
+                "google/paligemma-3b-mix-448", torch_dtype=torch.bfloat16
+            )
+            self.model = self.model.to(self.device).eval()
+            self.model.load_adapter("vidore/colpali")
+            self.processor = PaliGemmaProcessor.from_pretrained("vidore/colpali")
+
+    @staticmethod
+    def process_images(processor, images, max_length: int = 50):
+        texts_doc = ["Describe the image."] * len(images)
+        images = [image.convert("RGB") for image in images]
+
+        batch_doc = processor(
+            text=texts_doc,
+            images=images,
+            return_tensors="pt",
+            padding="longest",
+            max_length=max_length + processor.image_seq_length,
+        )
+        return batch_doc
+
+    @staticmethod
+    def process_queries(processor, queries, mock_image, max_length: int = 50):
+        texts_query = []
+        for query in queries:
+            query = f"Question: {query}<unused0><unused0><unused0><unused0><unused0>"
+            texts_query.append(query)
+
+        batch_query = processor(
+            images=[mock_image.convert("RGB")] * len(texts_query),
+            # NOTE: the image is not used in batch_query but it is required for calling the processor
+            text=texts_query,
+            return_tensors="pt",
+            padding="longest",
+            max_length=max_length + processor.image_seq_length,
+        )
+        del batch_query["pixel_values"]
+
+        batch_query["input_ids"] = batch_query["input_ids"][
+            ..., processor.image_seq_length :
+        ]
+        batch_query["attention_mask"] = batch_query["attention_mask"][
+            ..., processor.image_seq_length :
+        ]
+        return batch_query
+
+    def run(
+        self, query: MultimodalObject, doc: MultimodalDocument
+    ) -> MultimodalDocument:
+        doc = doc.copy(deep=True)
+        self.load()
+        images = [x.get_image() for x in doc.objects if x.image_string]
+        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
+
+        # noinspection PyTypeChecker
+        dataloader = DataLoader(
+            images,
+            batch_size=4,
+            shuffle=False,
+            collate_fn=lambda x: self.process_images(self.processor, x),
+        )
+
+        ds = []
+        for batch_doc in dataloader:
+            with torch.no_grad():
+                batch_doc = {k: v.to(self.model.device) for k, v in batch_doc.items()}
+                embeddings_doc = self.model(**batch_doc)
+            ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
+
+        # run inference - queries
+        # noinspection PyTypeChecker
+        dataloader = DataLoader(
+            [query.text],
+            batch_size=4,
+            shuffle=False,
+            collate_fn=lambda x: self.process_queries(
+                self.processor, x, Image.new("RGB", (448, 448), (255, 255, 255))
+            ),
+        )
+
+        qs = []
+        for batch_query in dataloader:
+            with torch.no_grad():
+                batch_query = {
+                    k: v.to(self.model.device) for k, v in batch_query.items()
+                }
+                embeddings_query = self.model(**batch_query)
+            qs.extend(list(torch.unbind(embeddings_query.to("cpu"))))
+
+        retriever_evaluator = CustomEvaluator()
+        scores = retriever_evaluator.evaluate(qs, ds).squeeze()
+        assert scores.ndim == 1
+        assert len(scores) == len(indices)
+        for i, s in zip(indices, scores):
+            doc.objects[i].score = float(s)
+
+        threshold = min(sorted(scores, reverse=True)[: self.top_k])
+        doc.objects = [x for x in doc.objects if x.score >= threshold]
+        return doc
+
+
 def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
     if name == "clip_text":
         return ClipTextRetriever(**kwargs)
@@ -204,32 +385,41 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return PageRetriever(**kwargs)
     elif name == "bm25_page":
         return BM25PageRetriever(**kwargs)
+    elif name == "colpali":
+        return ColpaliRetriever(**kwargs)
     raise KeyError(name)
 
 
-def test_retriever(
-    name: str = "clip_text",
-    query: str = "How many people are there?",
-    image_url: str = "https://english.www.gov.cn/images/202404/20/6622f970c6d0868f1ea91c82.jpeg",
-    **kwargs,
-):
+def test_retriever(name: str = "clip_text", **kwargs):
     generator = OpenAIModel()
     retriever = select_retriever(name, top_k=2, **kwargs)
-    image = load_image_from_url(image_url)
 
     doc = MultimodalDocument(
         objects=[
             MultimodalObject(text="The dogs are playing in the snow"),
             MultimodalObject(text="A cat on the table"),
             MultimodalObject(text="A picture of an event"),
-            MultimodalObject.from_image(image),
         ]
     )
 
-    context = retriever.run(MultimodalObject(text=query), doc)
-    context.objects.insert(0, MultimodalObject(text=query))
-    context.print()
-    print(generator.run(context))
+    for path in [
+        "data/demo_image_dogs.png",
+        "data/demo_image_ceremony.jpeg",
+        "data/demo_image_report.png",
+    ]:
+        doc.objects.append(MultimodalObject.from_image(Image.open(path), text=path))
+
+    for query in [
+        "How many people are there at the ceremony?",
+        "What are the animals doing?",
+        "Which year had more equity?",
+    ]:
+        context = retriever.run(MultimodalObject(text=query), doc)
+        for o in context.objects:
+            print(o.dict(exclude={"image_string"}))
+        context.objects.insert(0, MultimodalObject(text=query))
+        inputs = [x.get_image() if x.image_string else x.text for x in context.objects]
+        print(generator.run(inputs))
 
 
 if __name__ == "__main__":
