@@ -1,3 +1,4 @@
+import hashlib
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -259,6 +260,7 @@ class ColpaliRetriever(MultimodalRetriever):
     model: Optional[ColPali] = None
     processor: Optional[PaliGemmaProcessor] = None
     device: str = "cuda"
+    cache: Dict[str, list] = {}
 
     def load(self):
         if self.model is None:
@@ -308,13 +310,10 @@ class ColpaliRetriever(MultimodalRetriever):
         ]
         return batch_query
 
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
-        doc = doc.copy(deep=True)
-        self.load()
-        images = [x.get_image() for x in doc.objects if x.image_string]
-        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
+    def load_document_images(self, images: List[Image.Image]):
+        hash_id = "".join([hashlib.md5(i.tobytes()).hexdigest() for i in images])
+        if hash_id in self.cache:
+            return self.cache[hash_id]
 
         # noinspection PyTypeChecker
         dataloader = DataLoader(
@@ -330,6 +329,18 @@ class ColpaliRetriever(MultimodalRetriever):
                 batch_doc = {k: v.to(self.model.device) for k, v in batch_doc.items()}
                 embeddings_doc = self.model(**batch_doc)
             ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
+
+        self.cache[hash_id] = ds
+        return ds
+
+    def run(
+        self, query: MultimodalObject, doc: MultimodalDocument
+    ) -> MultimodalDocument:
+        doc = doc.copy(deep=True)
+        self.load()
+        images = [x.get_image() for x in doc.objects if x.image_string]
+        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
+        ds = self.load_document_images(images)
 
         # run inference - queries
         # noinspection PyTypeChecker
