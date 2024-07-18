@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fire import Fire
 from openai import OpenAI
 from pydantic import BaseModel
+from reka.client import Reka
 
 from data_loading import load_image_from_url, convert_image_to_text
 
@@ -21,6 +22,7 @@ def get_environment_key(path: str, name: str) -> str:
 
 class EvalModel(BaseModel, arbitrary_types_allowed=True):
     engine: str
+    timeout: int = 60
     temperature: float = 0.0
     max_output_tokens: int = 512
 
@@ -30,7 +32,6 @@ class EvalModel(BaseModel, arbitrary_types_allowed=True):
 
 class GeminiModel(EvalModel):
     engine: str = "gemini-1.5-pro-001"
-    timeout: int = 60
     client: Optional[genai.GenerativeModel]
 
     def load(self):
@@ -69,7 +70,6 @@ class GeminiModel(EvalModel):
 
 
 class OpenAIModel(EvalModel):
-    timeout: int = 60
     engine: str = "gpt-4o-2024-05-13"
     client: Optional[OpenAI] = None
 
@@ -128,7 +128,6 @@ class OpenAIModel(EvalModel):
 
 
 class ClaudeModel(EvalModel):
-    timeout: int = 60
     engine: str = "claude-3-5-sonnet-20240620"
     client: Optional[Anthropic] = None
 
@@ -184,11 +183,62 @@ class ClaudeModel(EvalModel):
         return output
 
 
+class RekaModel(EvalModel):
+    engine: str = "reka-core-20240501"
+    client: Optional[Reka] = None
+
+    def load(self):
+        if self.client is None:
+            key = get_environment_key(".env", "REKA_KEY")
+            self.client = Reka(api_key=key, timeout=self.timeout)
+
+    @staticmethod
+    def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
+        content = []
+
+        for x in inputs:
+            if isinstance(x, str):
+                content.append(dict(type="text", text=x))
+            elif isinstance(x, Image.Image):
+                content.append(
+                    dict(
+                        type="image_url",
+                        image_url=f"data:image/png;base64,{convert_image_to_text(x)}",
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported input type: {type(x)}")
+
+        return [dict(content=content, role="user")]
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        output = ""
+
+        while not output:
+            try:
+                response = self.client.chat.create(
+                    model=self.engine,
+                    messages=self.make_messages(inputs),
+                    temperature=self.temperature,
+                    max_tokens=self.max_output_tokens,
+                )
+                output = response.responses[0].message.content
+
+            except Exception as e:
+                print(e)
+            if not output:
+                print("RekaModel request failed, retrying.")
+
+        return output
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
         openai=OpenAIModel,
         claude=ClaudeModel,
+        reka=RekaModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -216,8 +266,10 @@ def test_model(
 
 
 """
-p modeling.py test_model --model_name gemini_vision
+p modeling.py test_model --model_name gemini
 p modeling.py test_model --model_name openai
+p modeling.py test_model --model_name claude
+p modeling.py test_model --model_name reka
 """
 
 
