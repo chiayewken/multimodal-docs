@@ -78,7 +78,11 @@ p evaluation.py test_retriever data/questions.json --retriever_name bm25
 p evaluation.py test_retriever data/questions.json --retriever_name colpali
 {'precision': 39.0, 'recall': 39.27, 'f1': 39.1}
 
+p evaluation.py test_retriever data/questions.json --retriever_name siglip
+{'precision': 29.2, 'recall': 29.33, 'f1': 29.25}
+
 p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name bm25
+p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name colpali
 """
 
 

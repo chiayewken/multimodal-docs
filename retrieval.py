@@ -16,6 +16,8 @@ from transformers import (
     PaliGemmaPreTrainedModel,
     PaliGemmaForConditionalGeneration,
     PaliGemmaProcessor,
+    SiglipModel,
+    SiglipProcessor,
 )
 
 from data_loading import MultimodalObject, MultimodalDocument
@@ -186,6 +188,49 @@ class BM25PageRetriever(MultimodalRetriever):
         assert len(scores) == len(doc.objects)
         for i, o in enumerate(doc.objects):
             o.score = scores[i]
+
+        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
+        doc.objects = sorted(doc.objects, key=lambda x: x.page)
+        return doc
+
+
+class SiglipRetriever(MultimodalRetriever):
+    path: str = "google/siglip-so400m-patch14-384"
+    model: Optional[SiglipModel] = None
+    processor: Optional[SiglipProcessor] = None
+    device: str = "cuda"
+    cache: Dict[str, BM25Okapi] = {}
+
+    def load(self):
+        if self.model is None:
+            self.model = SiglipModel.from_pretrained(self.path)
+            self.model = self.model.to(self.device).eval()
+            self.processor = SiglipProcessor.from_pretrained(self.path)
+
+    def run(
+        self, query: MultimodalObject, doc: MultimodalDocument
+    ) -> MultimodalDocument:
+        doc = doc.copy(deep=True)
+        self.load()
+        images = [x.get_image().convert("RGB") for x in doc.objects if x.image_string]
+        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
+        inputs = self.processor(
+            text=[query.text],
+            images=images,
+            padding="max_length",
+            return_tensors="pt",
+            truncation=True,
+        )
+
+        with torch.no_grad():
+            # noinspection PyTypeChecker
+            outputs = self.model(**inputs.to(self.device))
+        logits_per_image = outputs.logits_per_image
+        scores = torch.sigmoid(logits_per_image).squeeze()  # probabilities
+        assert scores.ndim == 1
+        assert len(scores) == len(indices)
+        for i, s in zip(indices, scores):
+            doc.objects[i].score = float(s)
 
         doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
         doc.objects = sorted(doc.objects, key=lambda x: x.page)
@@ -383,6 +428,8 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return BM25PageRetriever(**kwargs)
     elif name == "colpali":
         return ColpaliRetriever(**kwargs)
+    elif name == "siglip":
+        return SiglipRetriever(**kwargs)
     raise KeyError(name)
 
 

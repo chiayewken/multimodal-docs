@@ -19,6 +19,7 @@ rank-bm25==0.2.2
 reka-api==3.0.8
 reportlab==4.0.9
 sentence-transformers==2.4.0
+sentencepiece==0.2.0
 torch==2.2.0
 tqdm==4.66.1
 transformers==4.42.4
