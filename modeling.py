@@ -3,6 +3,7 @@ import time
 from typing import Optional, List, Union
 
 import google.generativeai as genai
+import torch
 from PIL import Image
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from fire import Fire
 from openai import OpenAI
 from pydantic import BaseModel
 from reka.client import Reka
+from transformers import PaliGemmaForConditionalGeneration, PaliGemmaProcessor
 
 from data_loading import load_image_from_url, convert_image_to_text
 
@@ -233,12 +235,49 @@ class RekaModel(EvalModel):
         return output
 
 
+class GemmaModel(EvalModel):
+    engine: str = "google/paligemma-3b-mix-448"
+    model: Optional[PaliGemmaForConditionalGeneration] = None
+    processor: Optional[PaliGemmaProcessor] = None
+    device: str = "cuda"
+
+    def load(self):
+        if self.model is None:
+            self.model = PaliGemmaForConditionalGeneration.from_pretrained(
+                self.engine,
+                torch_dtype=torch.bfloat16,
+                revision="bfloat16",
+            )
+            self.model = self.model.to(self.device).eval()
+            self.processor = PaliGemmaProcessor.from_pretrained(self.engine)
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        prompt = " ".join([x for x in inputs if isinstance(x, str)])
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+        raw = self.processor(text=prompt, images=images, return_tensors="pt")
+        length = raw["input_ids"].shape[-1]
+
+        with torch.inference_mode():
+            # noinspection PyTypeChecker
+            generation = self.model.generate(
+                **raw.to(self.device),
+                max_new_tokens=self.max_output_tokens,
+                do_sample=True,  # Otherwise the outputs will be very repetitive
+            )
+            generation = generation[0][length:]
+            return self.processor.decode(generation, skip_special_tokens=True)
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
         openai=OpenAIModel,
         claude=ClaudeModel,
         reka=RekaModel,
+        gemma=GemmaModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
