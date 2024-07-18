@@ -182,27 +182,12 @@ class BM25PageRetriever(MultimodalRetriever):
         doc = doc.copy(deep=True)
         ranker = self.load_ranker(doc)
         scores = ranker.get_scores(query.text.split())
-
-        # Assign the relevance of each page as the top-scoring object
-        page_scores = {}
         assert len(scores) == len(doc.objects)
         for i, o in enumerate(doc.objects):
-            assert o.page != 0
             o.score = scores[i]
-            page_scores.setdefault(o.page, 0)
-            page_scores[o.page] = max(page_scores[o.page], o.score)
 
-        top_pages = sorted(page_scores, key=lambda p: page_scores[p])[-self.top_k :]
-        doc.objects = [
-            x
-            for x in doc.objects
-            if (x.page in top_pages or (x.page - 1 in top_pages and x.image_string))
-        ]
-        print(dict(query=query.text))
-        for o in doc.objects:
-            if o.score == page_scores[o.page] and o.page in top_pages:
-                print(dict(page=o.page, top_text=o.text, score=o.score))
-
+        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
+        doc.objects = sorted(doc.objects, key=lambda x: x.page)
         return doc
 
 
@@ -373,8 +358,8 @@ class ColpaliRetriever(MultimodalRetriever):
         for i, s in zip(indices, scores):
             doc.objects[i].score = float(s)
 
-        threshold = min(sorted(scores, reverse=True)[: self.top_k])
-        doc.objects = [x for x in doc.objects if x.score >= threshold]
+        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
+        doc.objects = sorted(doc.objects, key=lambda x: x.page)
         return doc
 
 
@@ -383,7 +368,7 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return ClipTextRetriever(**kwargs)
     elif name == "page":
         return PageRetriever(**kwargs)
-    elif name == "bm25_page":
+    elif name == "bm25":
         return BM25PageRetriever(**kwargs)
     elif name == "colpali":
         return ColpaliRetriever(**kwargs)
@@ -418,8 +403,12 @@ def test_retriever(name: str = "clip_text", **kwargs):
         for o in context.objects:
             print(o.dict(exclude={"image_string"}))
         context.objects.insert(0, MultimodalObject(text=query))
-        inputs = [x.get_image() if x.image_string else x.text for x in context.objects]
-        print(generator.run(inputs))
+
+        inputs = [x.get_image() or x.text for x in context.objects]
+        outputs = generator.run(inputs)
+        print(dict(query=query))
+        print(dict(outputs=outputs))
+        print()
 
 
 if __name__ == "__main__":

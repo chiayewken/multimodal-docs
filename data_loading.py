@@ -201,11 +201,12 @@ class MultimodalSample(BaseModel):
     question: str
     answer: str
     evidence_pages: List[int] = []
-    prompt: List[MultimodalObject] = []
     raw_output: str = ""
     pred: str = ""
     source: str = ""
     annotator: str = ""
+    generator: str = ""
+    retrieved_pages: List[int] = []
 
 
 class MultimodalData(BaseModel):
