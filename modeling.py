@@ -11,7 +11,12 @@ from fire import Fire
 from openai import OpenAI
 from pydantic import BaseModel
 from reka.client import Reka
-from transformers import PaliGemmaForConditionalGeneration, PaliGemmaProcessor
+from transformers import (
+    PaliGemmaForConditionalGeneration,
+    PaliGemmaProcessor,
+    Idefics2Processor,
+    Idefics2ForConditionalGeneration,
+)
 
 from data_loading import load_image_from_url, convert_image_to_text
 
@@ -271,6 +276,56 @@ class GemmaModel(EvalModel):
             return self.processor.decode(generation, skip_special_tokens=True)
 
 
+class IdeficsModel(EvalModel):
+    engine: str = "HuggingFaceM4/idefics2-8b-chatty"
+    model: Optional[Idefics2ForConditionalGeneration] = None
+    processor: Optional[Idefics2Processor] = None
+    device: str = "cuda"
+
+    def load(self):
+        if self.model is None:
+            self.model = Idefics2ForConditionalGeneration.from_pretrained(
+                self.engine, torch_dtype=torch.float16
+            )
+            self.model = self.model.to(self.device).eval()
+            self.processor = Idefics2Processor.from_pretrained(
+                self.engine, size={"longest_edge": 700, "shortest_edge": 378}
+            )
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+
+    def process_inputs(self, inputs: List[Union[str, Image.Image]]):
+        self.load()
+        content = []
+        for x in inputs:
+            if isinstance(x, str):
+                content.append(dict(type="text", text=x))
+            elif isinstance(x, Image.Image):
+                content.append(dict(type="image"))
+            else:
+                raise ValueError(f"Unsupported input type: {type(x)}")
+
+        messages = [dict(role="user", content=content)]
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+        prompt = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True
+        )
+        return self.processor(text=prompt, images=images, return_tensors="pt").to(
+            self.device
+        )
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        with torch.inference_mode():
+            outputs = self.model.generate(
+                **self.process_inputs(inputs),
+                max_new_tokens=self.max_output_tokens,
+                do_sample=True,  # Otherwise the outputs will be very repetitive
+            )
+            texts = self.processor.batch_decode(outputs, skip_special_tokens=True)
+            return texts[0].split(" \nAssistant: ", maxsplit=1)[1]
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
@@ -278,6 +333,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         claude=ClaudeModel,
         reka=RekaModel,
         gemma=GemmaModel,
+        idefics=IdeficsModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -286,8 +342,8 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
 
 
 def test_model(
-    prompt: str = "Can you describe this image in detail?",
-    image_path: str = "",
+    prompt: str = "Can you extract the tables from this report?",
+    image_path: str = "data/demo_image_report.png",
     image_url: str = "https://english.www.gov.cn/images/202404/20/6622f970c6d0868f1ea91c82.jpeg",
     model_name: str = "openai",
     **kwargs,
@@ -309,6 +365,7 @@ p modeling.py test_model --model_name gemini
 p modeling.py test_model --model_name openai
 p modeling.py test_model --model_name claude
 p modeling.py test_model --model_name reka
+p modeling.py test_model --model_name idefics
 """
 
 

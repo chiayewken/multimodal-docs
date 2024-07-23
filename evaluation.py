@@ -84,6 +84,8 @@ p evaluation.py test_retriever data/questions.json --retriever_name siglip
 p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name bm25
 p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name colpali
 p evaluation.py generate_answers data/questions.json --generator_name gemma --retriever_name colpali
+p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name colpali
+p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name bm25
 """
 
 
