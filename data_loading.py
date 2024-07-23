@@ -197,6 +197,12 @@ def test_load_from_folder(
             print(folder, folder_pdf)
 
 
+class Judgement(BaseModel):
+    name: str
+    content: str
+    score: int
+
+
 class MultimodalSample(BaseModel):
     question: str
     answer: str
@@ -207,6 +213,7 @@ class MultimodalSample(BaseModel):
     annotator: str = ""
     generator: str = ""
     retrieved_pages: List[int] = []
+    judgements: List[Judgement] = []
 
 
 class MultimodalData(BaseModel):

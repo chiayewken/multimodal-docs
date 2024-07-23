@@ -190,6 +190,19 @@ def test_read_pdf_new(path: str = "data/reports/NYSE_HI_2023.pdf"):
     print(Path(path_out).absolute())
 
 
+def test_scores(path: str):
+    data = MultimodalData.load(path)
+    scores = [j.score for s in data.samples for j in s.judgements]
+    print(sum(scores) / len(scores))
+
+    print("Scores by each judge")
+    judges = [j.name for s in data.samples for j in s.judgements]
+    for name in sorted(set(judges)):
+        scores = [j.score for s in data.samples for j in s.judgements if j.name == name]
+        empty = sum(s == -1 for s in scores) / len(scores)
+        print(dict(name=name, score=sum(scores) / len(scores), empty=empty))
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
@@ -199,6 +212,10 @@ p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_excel_and_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_read_pdf_new
+
+p analysis.py test_scores outputs/openai/colpali/top_k=5.json
+p analysis.py test_scores outputs/claude/colpali/top_k=5.json
+p analysis.py test_scores outputs/gemini/colpali/top_k=5.json
 """
 
 

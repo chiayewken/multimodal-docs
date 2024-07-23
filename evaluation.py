@@ -1,5 +1,6 @@
+import re
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 
 import pandas as pd
 from fire import Fire
@@ -10,6 +11,7 @@ from data_loading import (
     MultimodalObject,
     MultimodalDocument,
     MultimodalSample,
+    Judgement,
 )
 from modeling import select_model
 from retrieval import select_retriever
@@ -71,6 +73,49 @@ def generate_answers(
             print(sample.json(), file=f)
 
 
+def extract_score(text) -> int:
+    for match in re.findall(r"\*\*(\d+)\*\*", text):
+        return int(match)
+    return -1
+
+
+def run_multi_judge(
+    data_path: str, judge_names: List[str] = ("openai", "claude", "gemini")
+):
+    template = "Score the following answer to the question based on the document content on a continuous scale from 0 to 100."
+    template += '\nA score of zero means "irrelevant or missing answer that is not helpful at all" and score of one hundred means "perfect answer, well-grounded in the document with explanation that correctly answers the question".'
+    template += "\nPlease provide a concise explanation of 1-3 sentences and then score from 0 to 100 that reflects the quality of the answer, not the quality of the question."
+    template += "\nPlease follow this example output format: The answer correct identifies the weighted average and explains the trend, but there is a factual error. Thus, the score is **75**."
+    template += "\n\nQuestion: {question}"
+    template += "\n\nAnswer: {answer}"
+    template += "\n\nDocument:"
+
+    data = MultimodalData.load(data_path)
+    progress = tqdm(data.samples, desc=f"{data_path} ({judge_names})")
+    scores = []
+
+    for sample in progress:
+        judgements = []
+        for name in judge_names:
+            judge = select_model(name)
+            prompt = template.format(question=sample.question, answer=sample.pred)
+            doc = MultimodalDocument.load(sample.source)
+            page_ids = sample.evidence_pages + sample.retrieved_pages
+            pages = sorted(
+                [p for p in doc.objects if p.page in page_ids], key=lambda p: p.page
+            )
+
+            inputs = [prompt] + [p.get_image() or p.text for p in pages] + ["\nScore:"]
+            outputs = judge.run(inputs)
+            scores.append(extract_score(outputs))
+            judgements.append(Judgement(name=name, content=outputs, score=scores[-1]))
+
+        sample.judgements = judgements
+        print(sample.json(indent=2))
+        progress.set_postfix(score=sum(scores) / len(scores))
+    data.save(data_path)
+
+
 """
 p evaluation.py test_retriever data/questions.json --retriever_name bm25
 {'precision': 28.6, 'recall': 28.73, 'f1': 28.65}
@@ -86,6 +131,20 @@ p evaluation.py generate_answers data/questions.json --generator_name openai --r
 p evaluation.py generate_answers data/questions.json --generator_name gemma --retriever_name colpali
 p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name colpali
 p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name bm25
+p evaluation.py generate_answers data/questions.json --generator_name claude --retriever_name colpali
+p evaluation.py generate_answers data/questions.json --generator_name gemini --retriever_name colpali
+p evaluation.py generate_answers data/questions.json --generator_name openai_mini --retriever_name colpali
+p evaluation.py generate_answers data/questions.json --generator_name gemini_flash --retriever_name colpali
+
+p evaluation.py run_multi_judge "outputs/openai/colpali/top_k=5.json"
+[43:33<00:00, 26.14s/it, score=78.5]
+
+p evaluation.py run_multi_judge "outputs/claude/colpali/top_k=5.json"
+[43:33<00:00, 26.14s/it, score=79.5]
+
+p evaluation.py run_multi_judge "outputs/gemini/colpali/top_k=5.json"
+[43:24<00:00, 26.05s/it, score=75.3]
+
 """
 
 
