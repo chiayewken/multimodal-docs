@@ -76,6 +76,10 @@ class GeminiModel(EvalModel):
         return output
 
 
+class GeminiFlashModel(GeminiModel):
+    engine: str = "gemini-1.5-flash-001"
+
+
 class OpenAIModel(EvalModel):
     engine: str = "gpt-4o-2024-05-13"
     client: Optional[OpenAI] = None
@@ -134,6 +138,10 @@ class OpenAIModel(EvalModel):
         return output
 
 
+class OpenAIMiniModel(OpenAIModel):
+    engine: str = "gpt-4o-mini-2024-07-18"
+
+
 class ClaudeModel(EvalModel):
     engine: str = "claude-3-5-sonnet-20240620"
     client: Optional[Anthropic] = None
@@ -188,6 +196,10 @@ class ClaudeModel(EvalModel):
             if not output:
                 print("ClaudeModel request failed, retrying.")
         return output
+
+
+class ClaudeHaikuModel(ClaudeModel):
+    engine: str = "claude-3-haiku-20240307"
 
 
 class RekaModel(EvalModel):
@@ -329,8 +341,11 @@ class IdeficsModel(EvalModel):
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
+        gemini_flash=GeminiFlashModel,
         openai=OpenAIModel,
+        openai_mini=OpenAIMiniModel,
         claude=ClaudeModel,
+        claude_haiku=ClaudeHaikuModel,
         reka=RekaModel,
         gemma=GemmaModel,
         idefics=IdeficsModel,
@@ -366,6 +381,9 @@ p modeling.py test_model --model_name openai
 p modeling.py test_model --model_name claude
 p modeling.py test_model --model_name reka
 p modeling.py test_model --model_name idefics
+p modeling.py test_model --model_name openai_mini
+p modeling.py test_model --model_name gemini_flash
+p modeling.py test_model --model_name claude_haiku
 """
 
 
