@@ -393,7 +393,7 @@ def test_model(
     print(locals())
 
     if image_path:
-        image = Image.open(image_path)
+        image = Image.open(image_path).convert("RGB")
     else:
         image = load_image_from_url(image_url)
 
@@ -411,6 +411,7 @@ p modeling.py test_model --model_name openai_mini
 p modeling.py test_model --model_name gemini_flash
 p modeling.py test_model --model_name claude_haiku
 p modeling.py test_model --model_name intern
+p modeling.py test_model --model_name gemma
 """
 
 

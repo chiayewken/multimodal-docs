@@ -25,3 +25,4 @@ transformers==4.42.4
 # Intern-VL
 pydantic==2.8.2
 lmdeploy[all]==0.5.1
+flash-attn==2.6.1
