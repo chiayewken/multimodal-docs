@@ -65,7 +65,7 @@ class MultimodalDocument(BaseModel):
                 x.text = x.text[:80] + "..."
             if x.image_string:
                 x.image_string = x.image_string[:20] + "..."
-            print(x.json(indent=2))
+            print(x.model_dump_json(indent=2))
 
     @classmethod
     def load_from_folder(cls, folder: str, folder_pdf: str = ""):
@@ -170,7 +170,7 @@ class MultimodalDocument(BaseModel):
     def save(self, path: str):
         with open(path, "w") as f:
             for o in self.objects:
-                print(o.json(), file=f)
+                print(o.model_dump_json(), file=f)
 
 
 def test_load_from_folder(
@@ -183,7 +183,7 @@ def test_load_from_folder(
 
         try:
             doc = MultimodalDocument.load_from_folder(str(folder), folder_pdf)
-            print(doc.objects[-1].json(indent=2, exclude={"image_string"}))
+            print(doc.objects[-1].model_dump_json(indent=2, exclude={"image_string"}))
             print(
                 dict(
                     folder=folder,
@@ -223,7 +223,7 @@ class MultimodalData(BaseModel):
         Path(path).parent.mkdir(exist_ok=True, parents=True)
         with open(path, "w") as f:
             for s in self.samples:
-                print(s.json(), file=f)
+                print(s.model_dump_json(), file=f)
 
     @classmethod
     def load(cls, path: str):

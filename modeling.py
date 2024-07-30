@@ -20,6 +20,12 @@ from transformers import (
 
 from data_loading import load_image_from_url, convert_image_to_text
 
+# noinspection PyUnresolvedReferences
+import lmdeploy
+
+# noinspection PyUnresolvedReferences
+from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+
 
 def get_environment_key(path: str, name: str) -> str:
     assert os.path.exists(path), f"Path {path} does not exist"
@@ -252,6 +258,25 @@ class RekaModel(EvalModel):
         return output
 
 
+class InternModel(EvalModel):
+    engine: str = "OpenGVLab/InternVL2-26B-AWQ"
+    client: Optional[VLAsyncEngine] = None
+
+    def load(self):
+        if self.client is None:
+            backend_config = lmdeploy.TurbomindEngineConfig(model_format="awq", tp=2)
+            self.client = lmdeploy.pipeline(self.engine, backend_config=backend_config)
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        texts = [x for x in inputs if isinstance(x, str)]
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+        assert len(texts) == 1
+        config = lmdeploy.GenerationConfig(max_new_tokens=self.max_output_tokens)
+        response = self.client((texts[0], images), generation_config=config)
+        return response.text
+
+
 class GemmaModel(EvalModel):
     engine: str = "google/paligemma-3b-mix-448"
     model: Optional[PaliGemmaForConditionalGeneration] = None
@@ -349,6 +374,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         reka=RekaModel,
         gemma=GemmaModel,
         idefics=IdeficsModel,
+        intern=InternModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -384,6 +410,7 @@ p modeling.py test_model --model_name idefics
 p modeling.py test_model --model_name openai_mini
 p modeling.py test_model --model_name gemini_flash
 p modeling.py test_model --model_name claude_haiku
+p modeling.py test_model --model_name intern
 """
 
 

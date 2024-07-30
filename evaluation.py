@@ -69,8 +69,8 @@ def generate_answers(
             inputs = [prompt] + [p.get_image() or p.text for p in pages]
             sample.pred = generator.run(inputs)
             sample.generator = generator_name
-            print(sample.json(indent=2))
-            print(sample.json(), file=f)
+            print(sample.model_dump_json(indent=2))
+            print(sample.model_dump_json(), file=f)
 
 
 def extract_score(text) -> int:
@@ -111,7 +111,7 @@ def run_multi_judge(
             judgements.append(Judgement(name=name, content=outputs, score=scores[-1]))
 
         sample.judgements = judgements
-        print(sample.json(indent=2))
+        print(sample.model_dump_json(indent=2))
         progress.set_postfix(score=sum(scores) / len(scores))
     data.save(data_path)
 
