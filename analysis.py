@@ -139,16 +139,7 @@ def test_load_from_pdf(
     print(Path(path_out).absolute())
 
 
-def test_load_from_excel_and_pdf(
-    path: str = "data/财报标注-0416.xlsx",
-    pdf_dir: str = "raw_data/annual_reports_2022_selected",
-):
-    data = MultimodalData.load_from_excel_and_pdf(path, pdf_dir=pdf_dir)
-    data.analyze()
-    breakpoint()
-
-
-def read_index(path: str = "data/nyse.txt"):
+def read_index(path: str = "data/nyse.txt", seed: int = 0):
     # https://www.annualreports.com/Companies?exch=1
     # https://uk.marketscreener.com/quote/index/MSCI-WORLD-107361487/components/
     records = []
@@ -165,7 +156,7 @@ def read_index(path: str = "data/nyse.txt"):
     df = pd.DataFrame(records)
     print(df.shape)
     pd.set_option("display.max_rows", None)
-    print(df.sample(100, random_state=0))
+    print(df.sample(100, random_state=seed))
 
 
 def test_read_pdf_new(path: str = "data/reports/NYSE_HI_2023.pdf"):
