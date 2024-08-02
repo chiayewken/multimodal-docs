@@ -232,19 +232,47 @@ class MultimodalData(BaseModel):
         return cls(samples=samples)
 
 
-def process_documents(*paths: str, output_dir: str = "data/docs"):
+def download_file(url, filename: str = None, overwrite: bool = False):
+    if filename is None:
+        filename = url.split("/")[-1]
+    if Path(filename).exists() and not overwrite:
+        print(f"Skipping: {filename}")
+        return
+
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    with open(filename, "wb") as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+
+    print(f"Downloaded: {filename}")
+
+
+def download_pdfs(path: str, output_dir: str):
+    df = pd.read_csv(path).sample(frac=1, random_state=0)  # Distribute domains
+    print(df.shape)
+    print(df.head())
+
+    for url in tqdm(df["url"], desc=output_dir):
+        filename = Path(output_dir, Path(url).name)
+        download_file(url, str(filename), overwrite=False)
+
+
+def process_documents(*paths: str):
     # Parse the pdfs into images and convert to json format
     for p in tqdm(paths):
         doc = MultimodalDocument.load_from_pdf_new(p)
-        path_out = Path(output_dir, Path(p).stem).with_suffix(".json")
+        path_out = Path(p).with_suffix(".json")
         path_out.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(path_out))
         print(dict(path_out=str(path_out), pages=len(doc.objects)))
 
 
 """
-p data_loading.py test_load_from_excel 
-p data_loading.py process_documents data/reports/*.pdf
+p data_loading.py download_pdfs data/train/metadata.csv data/train
+p data_loading.py download_pdfs data/test/metadata.csv data/test
+p data_loading.py process_documents data/train/*.pdf
+p data_loading.py process_documents data/test/*.pdf
 """
 
 
