@@ -1,5 +1,6 @@
 import io
 import random
+import re
 from pathlib import Path
 
 # noinspection PyPackageRequirements
@@ -13,6 +14,7 @@ from reportlab.platypus import (
     PageBreak,
 )
 from sentence_transformers import SentenceTransformer, util
+from tqdm import tqdm
 
 from data_loading import (
     load_image_from_url,
@@ -20,7 +22,9 @@ from data_loading import (
     MultimodalSample,
     MultimodalData,
     MultimodalDocument,
+    MultimodalObject,
 )
+from modeling import OpenAIMiniModel, select_model
 from reading import get_doc_images
 
 
@@ -194,6 +198,61 @@ def test_scores(path: str):
         print(dict(name=name, score=sum(scores) / len(scores), empty=empty))
 
 
+def test_doc_content(
+    *paths: str, pages_per_doc: int = 1, path_out: str = "renders/tags.pdf"
+):
+    random.seed(0)
+    model = select_model("openai_mini")
+    instruction = "Identify all the content types in the document. Output one or more of the following tags: <text>, <figure>, <table>."
+    tags = []
+    contents = []
+
+    for p in tqdm(paths):
+        doc = MultimodalDocument.load(p)
+        o: MultimodalObject
+        for o in random.sample(doc.objects, k=pages_per_doc):
+            image = o.get_image()
+            text = model.run([instruction, image])
+            pattern = r"<(\w+)>"
+            tags.append(re.findall(pattern, text))
+            print(tags[-1])
+
+            contents.append(load_doc_image(o.image_string, 256))
+            contents.append(Paragraph(o.source))
+            contents.append(Paragraph(str(tags[-1])))
+            contents.append(PageBreak())
+
+    template = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
+    template.build(contents)
+    print(Path(path_out).absolute())
+
+
+def test_doc_parsing(
+    *paths: str, pages_per_doc: int = 1, path_out: str = "renders/parse.pdf"
+):
+    random.seed(0)
+    model = select_model("openai_mini")
+    instruction = "Convert the image to markdown. If there are any charts or diagrams, give a detailed description in its place."
+    contents = []
+
+    for p in tqdm(paths):
+        doc = MultimodalDocument.load(p)
+        o: MultimodalObject
+        for o in random.sample(doc.objects, k=pages_per_doc):
+            image = o.get_image()
+            text = model.run([instruction, image])
+            print(text)
+
+            contents.append(load_doc_image(o.image_string, 512))
+            contents.append(Paragraph(o.source))
+            contents.append(Paragraph(text))
+            contents.append(PageBreak())
+
+    template = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
+    template.build(contents)
+    print(Path(path_out).absolute())
+
+
 """
 p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
 p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
@@ -207,6 +266,8 @@ p analysis.py test_read_pdf_new
 p analysis.py test_scores outputs/openai/colpali/top_k=5.json
 p analysis.py test_scores outputs/claude/colpali/top_k=5.json
 p analysis.py test_scores outputs/gemini/colpali/top_k=5.json
+p analysis.py test_doc_content data/train/*.json
+p analysis.py test_doc_parsing data/train/*.json
 """
 
 

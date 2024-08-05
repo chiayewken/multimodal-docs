@@ -168,6 +168,7 @@ class MultimodalDocument(BaseModel):
         return cls(objects=objects)
 
     def save(self, path: str):
+        Path(path).parent.mkdir(exist_ok=True, parents=True)
         with open(path, "w") as f:
             for o in self.objects:
                 print(o.model_dump_json(), file=f)
