@@ -270,8 +270,8 @@ def process_documents(*paths: str):
 
 
 """
-p data_loading.py download_pdfs data/train/metadata.csv data/train
-p data_loading.py download_pdfs data/test/metadata.csv data/test
+python data_loading.py download_pdfs data/train/metadata.csv data/train
+python data_loading.py download_pdfs data/test/metadata.csv data/test
 p data_loading.py process_documents data/train/*.pdf
 p data_loading.py process_documents data/test/*.pdf
 """

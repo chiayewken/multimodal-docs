@@ -1,0 +1,26 @@
+<annotation>
+	<folder>detect_train</folder>
+	<filename>page_73_2012.12939v1.jpg</filename>
+	<path>/Users/chiayewken/Downloads/Projects/Work/MultimodalFinance/data/detect_train/page_73_2012.12939v1.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>494</width>
+		<height>640</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>box</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>70</xmin>
+			<ymin>62</ymin>
+			<xmax>420</xmax>
+			<ymax>247</ymax>
+		</bndbox>
+	</object>
+</annotation>

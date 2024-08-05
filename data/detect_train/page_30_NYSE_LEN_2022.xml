@@ -1,0 +1,26 @@
+<annotation>
+	<folder>detect_train</folder>
+	<filename>page_30_NYSE_LEN_2022.jpg</filename>
+	<path>/Users/chiayewken/Downloads/Projects/Work/MultimodalFinance/data/detect_train/page_30_NYSE_LEN_2022.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>494</width>
+		<height>640</height>
+		<depth>1</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>box</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>40</xmin>
+			<ymin>179</ymin>
+			<xmax>451</xmax>
+			<ymax>261</ymax>
+		</bndbox>
+	</object>
+</annotation>

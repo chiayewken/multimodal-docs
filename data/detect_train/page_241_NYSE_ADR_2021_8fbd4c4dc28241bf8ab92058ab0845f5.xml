@@ -1,0 +1,26 @@
+<annotation>
+	<folder>detect_train</folder>
+	<filename>page_241_NYSE_ADR_2021_8fbd4c4dc28241bf8ab92058ab0845f5.jpg</filename>
+	<path>/Users/chiayewken/Downloads/Projects/Work/MultimodalFinance/data/detect_train/page_241_NYSE_ADR_2021_8fbd4c4dc28241bf8ab92058ab0845f5.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>640</width>
+		<height>452</height>
+		<depth>1</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>box</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>41</xmin>
+			<ymin>131</ymin>
+			<xmax>598</xmax>
+			<ymax>405</ymax>
+		</bndbox>
+	</object>
+</annotation>
