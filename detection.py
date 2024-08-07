@@ -1,4 +1,7 @@
 import os
+
+from huggingface_hub import hf_hub_download
+from ultralytics import YOLO
 import random
 import sys
 from pathlib import Path
@@ -84,6 +87,26 @@ def fix_labeler_source():
     )
 
     print("Patches applied successfully.")
+
+
+def test_yolo(
+    repo: str = "DILHTWD/documentlayoutsegmentation_YOLOv8_ondoclaynet",
+    filename: str = "yolov8x-doclaynet-epoch64-imgsz640-initiallr1e-4-finallr1e-5.pt",
+    folder: str = "data",
+    path_image: str = "data/demo_image_paper.png",
+):
+    hf_hub_download(repo_id=repo, filename=filename, local_dir=folder)
+    model = YOLO(Path(folder, filename))
+
+    results = model(
+        source=[path_image],
+        save=True,
+        show_labels=True,
+        show_conf=True,
+        show_boxes=True,
+    )
+
+    print(results)
 
 
 """
