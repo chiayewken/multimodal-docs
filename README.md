@@ -1,8 +1,8 @@
 ### Setup
 
 ```
-conda create -n finance python=3.10 -y
-conda activate finance
+conda create -n docs python=3.10 -y
+conda activate docs
 pip install -r requirements.txt
 ```
 

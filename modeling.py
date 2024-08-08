@@ -3,6 +3,7 @@ import time
 from typing import Optional, List, Union
 
 import google.generativeai as genai
+import requests
 import torch
 from PIL import Image
 from anthropic import Anthropic
@@ -20,11 +21,12 @@ from transformers import (
 
 from data_loading import load_image_from_url, convert_image_to_text
 
-# noinspection PyUnresolvedReferences
-import lmdeploy
-
-# noinspection PyUnresolvedReferences
-from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+try:
+    # noinspection PyUnresolvedReferences
+    import lmdeploy
+    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+except ImportError:
+    VLAsyncEngine = None
 
 
 def get_environment_key(path: str, name: str) -> str:
@@ -363,6 +365,54 @@ class IdeficsModel(EvalModel):
             return texts[0].split(" \nAssistant: ", maxsplit=1)[1]
 
 
+class CloudModel(EvalModel):
+    # Queries the server on google cloud for completions, which should work in any country
+    url: str = "http://35.208.161.228:8000/completions"
+
+    def get_model_key(self) -> str:
+        if self.engine.startswith("gpt"):
+            return get_environment_key(".env", "OPENAI_KEY")
+        elif self.engine.startswith("claude"):
+            return get_environment_key(".env", "CLAUDE_KEY")
+        elif self.engine.startswith("gemini"):
+            return get_environment_key(".env", "GEMINI_KEY")
+        else:
+            raise ValueError(f"Unknown engine: {self.engine}")
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        contents = [
+            dict(text=x) if isinstance(x, str) else dict(image=convert_image_to_text(x))
+            for x in inputs
+        ]
+
+        output = ""
+        while not output:
+            try:
+                data = dict(
+                    engine=self.engine,
+                    key=self.get_model_key(),
+                    contents=contents,
+                    kwargs=dict(
+                        timeout=self.timeout,
+                        temperature=self.temperature,
+                        max_tokens=self.max_output_tokens,
+                    ),
+                )
+
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(self.url, json=data, headers=headers)
+                if response.status_code == 200:
+                    result = response.json()
+                    output = result["text"]
+                else:
+                    print("Error:", response.status_code, response.text)
+            except Exception as e:
+                print("CloudModel request failed:", e)
+                time.sleep(1)
+
+        return output
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
@@ -378,7 +428,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
     )
     model_class = model_map.get(model_name)
     if model_class is None:
-        raise ValueError(f"{model_name}. Choose from {list(model_map.keys())}")
+        return CloudModel(engine=model_name, **kwargs)
     return model_class(**kwargs)
 
 
@@ -412,6 +462,11 @@ p modeling.py test_model --model_name gemini_flash
 p modeling.py test_model --model_name claude_haiku
 p modeling.py test_model --model_name intern
 p modeling.py test_model --model_name gemma
+
+# CloudModel API
+python modeling.py test_model --model_name gpt-4o-2024-05-13
+python modeling.py test_model --model_name claude-3-5-sonnet-20240620
+python modeling.py test_model --model_name gemini-1.5-pro-001
 """
 
 
