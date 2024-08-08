@@ -24,7 +24,7 @@ from data_loading import (
     MultimodalDocument,
     MultimodalObject,
 )
-from modeling import OpenAIMiniModel, select_model
+from modeling import select_model
 from reading import get_doc_images
 
 
@@ -54,39 +54,15 @@ def load_doc_image(text: str, size: int) -> DocImage:
     image = convert_text_to_image(text)
     content = io.BytesIO()
     image.save(content, format=image.format)
-    height = size * image.height // image.width
-    return DocImage(content, width=size, height=height)
 
+    if image.width > image.height:
+        new_width = size
+        new_height = int(size * image.height / image.width)
+    else:
+        new_height = size
+        new_width = int(size * image.width / image.height)
 
-def show_preds(path: str, path_out: str, image_size=256):
-    Path(path_out).parent.mkdir(exist_ok=True, parents=True)
-    doc = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
-    story = []
-    retrieve_success = []
-
-    sample: MultimodalSample
-    for i, sample in enumerate(MultimodalData.load(path).samples):
-        sample.print()
-        story.append(Paragraph(f"<b>Prompt for {sample.doc.source}</b>:"))
-        for x in sample.prompt.objects:
-            story.append(Paragraph(f"<b>Page {x.page}</b>:"))
-            if x.text:
-                story.append(Paragraph(x.text))
-            if x.image_string:
-                story.append(load_doc_image(x.image_string, image_size))
-
-        story.append(Paragraph(f"<b>Gold Answer</b>: {sample.answer}"))
-        story.append(Paragraph(f"<b>Raw Output</b>: {sample.raw_output}"))
-        story.append(Paragraph(f"<b>Evidence</b>: {sample.evidence.objects[0].page}"))
-        retrieve_success.append(
-            sample.evidence.objects[0].page in [o.page for o in sample.prompt.objects]
-        )
-        story.append(Paragraph(f"<b>Retrieve Success</b>: {retrieve_success[-1]}"))
-        story.append(PageBreak())
-
-    doc.build(story)
-    print(Path(path_out).absolute())
-    print(dict(retrieve_success=sum(retrieve_success) / len(retrieve_success)))
+    return DocImage(content, width=new_width, height=new_height)
 
 
 def check_empty_texts(*paths: str):
@@ -164,13 +140,13 @@ def read_index(path: str = "data/nyse.txt", seed: int = 0):
 
 
 def test_read_pdf_new(path: str = "data/reports/NYSE_HI_2023.pdf"):
-    doc = MultimodalDocument.load_from_pdf_new(path)
+    doc = MultimodalDocument.load_from_pdf(path)
     path_out = Path("renders", Path(path).name)
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
 
     story = []
     random.seed(0)
-    objects = sorted(random.sample(doc.objects, 10), key=lambda x: x.page)
+    objects = sorted(random.sample(doc.objects, 10), key=lambda o: o.page)
     for x in objects:
         story.append(Paragraph(f"<b>Page {x.id}</b>:"))
         image = convert_text_to_image(x.image_string)
@@ -253,11 +229,33 @@ def test_doc_parsing(
     print(Path(path_out).absolute())
 
 
+def show_document(path: str, output_dir="renders"):
+    doc = MultimodalDocument.load(path)
+    path_out = Path(output_dir, Path(path).name).with_suffix(".pdf")
+    Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+
+    story = []
+    sample: MultimodalSample
+    for page in tqdm(doc.pages):
+        story.append(Paragraph(f"<b>Page {page.number}</b>:"))
+        story.append(Paragraph(f"<b>Source</b>: {page.source}"))
+        story.append(Paragraph(f"<b>Full Image:</b>"))
+        story.append(load_doc_image(page.image_string, 256))
+        story.append(Paragraph(f"<b>Full Text:</b>"))
+        story.append(Paragraph(page.text))
+
+        story.append(Paragraph(f"<b>Objects:</b>"))
+        for i, o in enumerate(page.objects):
+            story.append(Paragraph(f"<b>Object {i} ({o.category})</b>:"))
+            story.append(load_doc_image(o.image_string, 256))
+        story.append(PageBreak())
+
+    template = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
+    template.build(story)
+    print(Path(path_out).absolute())
+
+
 """
-p analysis.py show_preds outputs/demo/acrv/openai_vision/clip_text/top_k_2.jsonl --path_out renders/demo_openai.pdf
-p analysis.py show_preds outputs/demo/amlx/openai_vision/clip_text/top_k_10.jsonl --path_out renders/demo_openai_amlx.pdf
-p analysis.py show_preds outputs/eval/openai/page/top_k=3.jsonl --path_out renders/openai_page_top_k=3.pdf
-p analysis.py show_preds outputs/eval/openai/bm25_page/top_k=3.jsonl --path_out renders/openai_bm25_page_top_k=3.pdf
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_excel_and_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -268,6 +266,7 @@ p analysis.py test_scores outputs/claude/colpali/top_k=5.json
 p analysis.py test_scores outputs/gemini/colpali/top_k=5.json
 p analysis.py test_doc_content data/train/*.json
 p analysis.py test_doc_parsing data/train/*.json
+p analysis.py show_document data/train/2012.00805v1.json
 """
 
 

@@ -1,14 +1,15 @@
 import os
-
-from huggingface_hub import hf_hub_download
-from ultralytics import YOLO
 import random
 import sys
 from pathlib import Path
+from typing import List
 
 from PIL import Image
 from fire import Fire
+from huggingface_hub import hf_hub_download
 from tqdm import tqdm
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
 
 from data_loading import MultimodalDocument, MultimodalObject, convert_text_to_image
 
@@ -28,7 +29,7 @@ def save_detection_data(*paths: str, output_dir: str, num: int, image_size: int 
     # Parse the pdfs into images and convert to json format
     objects = []
     for p in tqdm(paths):
-        doc = MultimodalDocument.load_from_pdf_new(p)
+        doc = MultimodalDocument.load_from_pdf(p)
         objects.extend(doc.objects)
 
     random.seed(0)
@@ -98,7 +99,7 @@ def test_yolo(
     hf_hub_download(repo_id=repo, filename=filename, local_dir=folder)
     model = YOLO(Path(folder, filename))
 
-    results = model(
+    results: List[Results] = model(
         source=[path_image],
         save=True,
         show_labels=True,
@@ -107,6 +108,7 @@ def test_yolo(
     )
 
     print(results)
+    breakpoint()
 
 
 """

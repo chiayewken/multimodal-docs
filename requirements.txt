@@ -28,3 +28,4 @@ lmdeploy[all]==0.5.1
 #flash-attn==2.6.1
 labelImg==1.8.6
 ultralytics==8.2.73
+huggingface-hub==0.24.5

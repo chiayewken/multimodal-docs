@@ -1,6 +1,8 @@
 import base64
+import hashlib
 import io
 import json
+import shutil
 from pathlib import Path
 from typing import List, Optional
 
@@ -10,11 +12,11 @@ import pandas as pd
 import requests
 from PIL import Image
 from fire import Fire
-from llama_index.readers.file import PDFReader
+from huggingface_hub import hf_hub_download
 from pydantic import BaseModel
 from tqdm import tqdm
-
-from reading import get_doc_images
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
 
 
 def convert_image_to_text(image: Image) -> str:
@@ -45,6 +47,7 @@ class MultimodalObject(BaseModel):
     snippet: str = ""
     score: float = 0.0
     source: str = ""
+    category: str = ""
 
     def get_image(self) -> Optional[Image.Image]:
         if self.image_string:
@@ -55,83 +58,95 @@ class MultimodalObject(BaseModel):
         return cls(image_string=convert_image_to_text(image), **kwargs)
 
 
-class MultimodalDocument(BaseModel):
-    objects: List[MultimodalObject]
+class ObjectDetector(BaseModel, arbitrary_types_allowed=True):
+    def run(self, image: Image.Image) -> List[MultimodalObject]:
+        raise NotImplementedError()
 
-    def print(self):
-        for x in self.objects:
-            x = x.copy(deep=True)
-            if len(x.text) > 80:
-                x.text = x.text[:80] + "..."
-            if x.image_string:
-                x.image_string = x.image_string[:20] + "..."
-            print(x.model_dump_json(indent=2))
 
-    @classmethod
-    def load_from_folder(cls, folder: str, folder_pdf: str = ""):
-        # Folder has jpg image files and a captions.xlsx
-        path = sorted(Path(folder).glob("**/*.xlsx"))[0]
-        df = pd.read_excel(path, engine="calamine")
-        image_map = {x.stem: x for x in Path(folder).glob("**/*.jpg")}
-        assert image_map
+class YoloDetector(ObjectDetector):
+    repo_id: str = "DILHTWD/documentlayoutsegmentation_YOLOv8_ondoclaynet"
+    filename: str = "yolov8x-doclaynet-epoch64-imgsz640-initiallr1e-4-finallr1e-5.pt"
+    local_dir: str = "data/yolo"
+    client: Optional[YOLO] = None
 
-        parts = []
-        for filename, caption in tqdm(df.values[:, :2], desc=folder):
-            image_path = image_map.get(Path(filename).stem)
-            if image_path is None:
-                print(dict(missing_image=Path(filename).stem))
-                continue
-            image = Image.open(image_path)
-            if image.mode == "CMYK":
-                image = image.convert("RGB")
-                print(dict(special_image_cmyk=image_path))
+    def load(self):
+        if self.client is None:
+            if not Path(self.local_dir, self.filename).exists():
+                hf_hub_download(
+                    repo_id=self.repo_id,
+                    filename=self.filename,
+                    local_dir=self.local_dir,
+                )
+            self.client = YOLO(Path(self.local_dir, self.filename))
 
-            numbers = [n for n in Path(filename).stem.split("_")]
-            page = numbers[-2] if numbers[-2].isdigit() else numbers[-1]  # fig_16_3.jpg
-            parts.append(
-                MultimodalObject.from_image(
-                    image, text=caption.strip(), page=page, source=str(image_path)
+    def save_image(self, image: Image.Image) -> str:
+        text = convert_image_to_text(image)
+        hash_id = hashlib.md5(text.encode()).hexdigest()
+        path = Path(self.local_dir, f"{hash_id}.png")
+        image.save(path)
+        return str(path)
+
+    @staticmethod
+    def extract_subimage(image: Image.Image, box: List[float]) -> Image.Image:
+        return image.crop((round(box[0]), round(box[1]), round(box[2]), round(box[3])))
+
+    def run(self, image: Image.Image) -> List[MultimodalObject]:
+        self.load()
+        path = self.save_image(image)
+        results: List[Results] = self.client(source=[path])
+        assert len(results) == 1
+        objects = []
+
+        for i, label_id in enumerate(results[0].boxes.cls):
+            label = results[0].names[label_id.item()]
+            score = results[0].boxes.conf[i].item()
+            box: List[float] = results[0].boxes.xyxy[i].tolist()
+            subimage = self.extract_subimage(image, box)
+            objects.append(
+                MultimodalObject(
+                    image_string=convert_image_to_text(subimage),
+                    category=label,
+                    score=score,
                 )
             )
 
-        if folder_pdf:
-            # Extract text from PDF
-            path = Path(folder_pdf, Path(folder).name).with_suffix(".pdf")
-            assert path.exists(), f"PDF not found: {path}"
-            reader = PDFReader()
-            data = reader.load_data(path)
-            for x in data:
-                text = MultimodalObject(
-                    text=x.text, page=x.metadata["page_label"], source=str(path)
-                )
-                parts.insert(0, text)  # Prioritize text parts before sorting
+        return objects
 
-        if not parts:
-            raise ValueError(f"No multimodal parts found in {folder}")
-        return cls(objects=sorted(parts, key=lambda p: p.page), source=folder)
+
+def test_yolo_detector(
+    path_image: str = "data/demo_image_paper.png",
+    output_dir: str = "outputs/yolo_demo",
+):
+    if Path(output_dir).exists():
+        shutil.rmtree(output_dir)
+    image = Image.open(path_image)
+    model = YoloDetector()
+    objects = model.run(image)
+
+    for i, o in enumerate(objects):
+        subimage = o.get_image()
+        path = Path(output_dir, f"{o.category}_{i}.png")
+        path.parent.mkdir(exist_ok=True, parents=True)
+        subimage.save(path)
+        print(path, subimage.size)
+
+
+class MultimodalPage(BaseModel):
+    number: int
+    objects: List[MultimodalObject]
+    text: str
+    image_string: str
+    source: str
+
+
+class MultimodalDocument(BaseModel):
+    pages: List[MultimodalPage]
 
     @classmethod
-    def load_from_pdf(cls, path: str):
-        doc = fitz.open(path)
-        image_map = get_doc_images(doc)
-        parts = []
-
-        for i, page in enumerate(doc.pages()):
-            text = page.get_text()
-            if text.strip():
-                parts.append(MultimodalObject(text=text, page=i + 1, source=path))
-            for image in image_map.get(i, []):
-                parts.append(
-                    MultimodalObject.from_image(image, page=i + 1, source=path)
-                )
-
-        return cls(objects=parts, source=path)
-
-    @classmethod
-    def load_from_pdf_new(cls, path: str, dpi: int = 150):
+    def load_from_pdf(cls, path: str, dpi: int = 150, detector: ObjectDetector = None):
         # Each page as an image (with optional extracted text)
         doc = fitz.open(path)
-        parts = []
+        pages = []
 
         for i, page in enumerate(tqdm(doc.pages(), desc=path)):
             text = page.get_text()
@@ -139,63 +154,38 @@ class MultimodalDocument(BaseModel):
             matrix = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=matrix)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            parts.append(
-                MultimodalObject(
-                    id=f"{Path(path).stem}_page_{i + 1}",
+
+            objects = []
+            if detector:
+                objects = detector.run(image)
+            for o in objects:
+                o.page, o.source = i + 1, path
+
+            pages.append(
+                MultimodalPage(
+                    number=i + 1,
+                    objects=objects,
                     text=text,
-                    page=i + 1,
-                    source=path,
                     image_string=convert_image_to_text(image),
+                    source=path,
                 )
             )
 
-        return cls(objects=parts, source=path)
-
-    def as_pages(self) -> List["MultimodalDocument"]:
-        num_pages = max(o.page for o in self.objects) + 1
-        groups = {i: [] for i in range(num_pages)}
-        for o in self.objects:
-            groups[o.page].append(o)
-
-        return [MultimodalDocument(objects=groups[i]) for i in sorted(groups)]
+        return cls(pages=pages)
 
     @classmethod
     def load(cls, path: str):
-        objects = []
+        pages = []
         with open(path) as f:
             for line in f:
-                objects.append(MultimodalObject(**json.loads(line)))
-        return cls(objects=objects)
+                pages.append(MultimodalPage(**json.loads(line)))
+        return cls(pages=pages)
 
     def save(self, path: str):
         Path(path).parent.mkdir(exist_ok=True, parents=True)
         with open(path, "w") as f:
-            for o in self.objects:
+            for o in self.pages:
                 print(o.model_dump_json(), file=f)
-
-
-def test_load_from_folder(
-    data_dir: str = "raw_data/annotation_first_step",
-    folder_pdf: str = "raw_data/annual_reports_2022_selected",
-):
-    for folder in sorted(Path(data_dir).iterdir()):
-        if folder.name.startswith("."):
-            continue
-
-        try:
-            doc = MultimodalDocument.load_from_folder(str(folder), folder_pdf)
-            print(doc.objects[-1].model_dump_json(indent=2, exclude={"image_string"}))
-            print(
-                dict(
-                    folder=folder,
-                    num_images=sum(o.image_string != "" for o in doc.objects),
-                    num_texts=sum(o.image_string == "" for o in doc.objects),
-                )
-            )
-
-        except Exception as e:
-            print(e)
-            print(folder, folder_pdf)
 
 
 class Judgement(BaseModel):
@@ -261,17 +251,19 @@ def download_pdfs(path: str, output_dir: str):
 
 def process_documents(*paths: str):
     # Parse the pdfs into images and convert to json format
+    detector = YoloDetector()
     for p in tqdm(paths):
-        doc = MultimodalDocument.load_from_pdf_new(p)
+        doc = MultimodalDocument.load_from_pdf(p, detector=detector)
         path_out = Path(p).with_suffix(".json")
         path_out.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(path_out))
-        print(dict(path_out=str(path_out), pages=len(doc.objects)))
+        print(dict(path_out=str(path_out), pages=len(doc.pages)))
 
 
 """
 python data_loading.py download_pdfs data/train/metadata.csv data/train
 python data_loading.py download_pdfs data/test/metadata.csv data/test
+python data_loading.py test_yolo_detector
 p data_loading.py process_documents data/train/*.pdf
 p data_loading.py process_documents data/test/*.pdf
 """
