@@ -242,10 +242,13 @@ def show_document(path: str, output_dir="renders"):
         story.append(Paragraph(f"<b>Full Image:</b>"))
         story.append(load_doc_image(page.image_string, 256))
         story.append(Paragraph(f"<b>Full Text:</b>"))
-        story.append(Paragraph(page.text))
+        try:
+            story.append(Paragraph(page.text))
+        except Exception as e:
+            print(e, page.text)
 
         story.append(Paragraph(f"<b>Objects:</b>"))
-        for i, o in enumerate(page.objects):
+        for i, o in enumerate(page.get_tables_and_figures()):
             story.append(Paragraph(f"<b>Object {i} ({o.category})</b>:"))
             story.append(load_doc_image(o.image_string, 256))
         story.append(PageBreak())
@@ -253,6 +256,17 @@ def show_document(path: str, output_dir="renders"):
     template = SimpleDocTemplate(str(path_out), pagesize=(8.5 * 72, 25.5 * 72))
     template.build(story)
     print(Path(path_out).absolute())
+
+
+def test_object_categories(*paths: str):
+    docs = [MultimodalDocument.load(p) for p in tqdm(paths)]
+    for label in ["Text", "Picture", "Table"]:
+        print(f"How many pages have {label}?")
+        count = sum(
+            any(o.category == label for o in p.objects) for d in docs for p in d.pages
+        )
+        total = sum(len(d.pages) for d in docs)
+        print(count / total)
 
 
 """
@@ -266,7 +280,8 @@ p analysis.py test_scores outputs/claude/colpali/top_k=5.json
 p analysis.py test_scores outputs/gemini/colpali/top_k=5.json
 p analysis.py test_doc_content data/train/*.json
 p analysis.py test_doc_parsing data/train/*.json
-p analysis.py show_document data/train/2012.00805v1.json
+p analysis.py show_document data/train/2012.14143v1.json
+p analysis.py test_object_categories data/train/*.json
 """
 
 

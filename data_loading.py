@@ -138,6 +138,9 @@ class MultimodalPage(BaseModel):
     image_string: str
     source: str
 
+    def get_tables_and_figures(self) -> List[MultimodalObject]:
+        return [o for o in self.objects if o.category in ["Table", "Picture"]]
+
 
 class MultimodalDocument(BaseModel):
     pages: List[MultimodalPage]
@@ -197,6 +200,8 @@ class Judgement(BaseModel):
 class MultimodalSample(BaseModel):
     question: str
     answer: str
+    category: str
+    checking_output: str = ""
     evidence_pages: List[int] = []
     raw_output: str = ""
     pred: str = ""
