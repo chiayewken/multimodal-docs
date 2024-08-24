@@ -269,6 +269,15 @@ def test_object_categories(*paths: str):
         print(count / total)
 
 
+def test_document_lengths(*paths: str):
+    print("Finance")
+    docs = [MultimodalDocument.load(p) for p in tqdm(paths) if "NYSE" in p]
+    print(sum(len(d.pages) for d in docs) / len(docs))
+    print("Academic")
+    docs = [MultimodalDocument.load(p) for p in tqdm(paths) if "NYSE" not in p]
+    print(sum(len(d.pages) for d in docs) / len(docs))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -282,6 +291,7 @@ p analysis.py test_doc_content data/train/*.json
 p analysis.py test_doc_parsing data/train/*.json
 p analysis.py show_document data/train/2012.14143v1.json
 p analysis.py test_object_categories data/train/*.json
+p analysis.py test_document_lengths data/test/*.json
 """
 
 
