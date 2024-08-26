@@ -44,6 +44,9 @@ class EvalModel(BaseModel, arbitrary_types_allowed=True):
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         raise NotImplementedError
 
+    def run_many(self, inputs: List[Union[str, Image.Image]], num: int) -> List[str]:
+        raise NotImplementedError
+
 
 class GeminiModel(EvalModel):
     engine: str = "gemini-1.5-pro-001"
@@ -403,7 +406,7 @@ class CloudModel(EvalModel):
                 response = requests.post(self.url, json=data, headers=headers)
                 if response.status_code == 200:
                     result = response.json()
-                    output = result["text"]
+                    output = result["texts"][0]
                 else:
                     print("Error:", response.status_code, response.text)
             except Exception as e:
@@ -411,6 +414,40 @@ class CloudModel(EvalModel):
                 time.sleep(1)
 
         return output
+
+    def run_many(self, inputs: List[Union[str, Image.Image]], num: int) -> List[str]:
+        contents = [
+            dict(text=x) if isinstance(x, str) else dict(image=convert_image_to_text(x))
+            for x in inputs
+        ]
+
+        outputs = []
+        while not outputs:
+            try:
+                data = dict(
+                    engine=self.engine,
+                    key=self.get_model_key(),
+                    contents=contents,
+                    num_generate=num,
+                    kwargs=dict(
+                        timeout=self.timeout,
+                        temperature=self.temperature,
+                        max_tokens=self.max_output_tokens,
+                    ),
+                )
+
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(self.url, json=data, headers=headers)
+                if response.status_code == 200:
+                    result = response.json()
+                    outputs = result["texts"]
+                else:
+                    print("Error:", response.status_code, response.text)
+            except Exception as e:
+                print("CloudModel request failed:", e)
+                time.sleep(1)
+
+        return outputs
 
 
 def select_model(model_name: str, **kwargs) -> EvalModel:
@@ -451,6 +488,25 @@ def test_model(
     print(model.run(inputs))
 
 
+def test_run_many(
+    prompt: str = "Can you extract the tables from this report?",
+    image_path: str = "data/demo_image_report.png",
+    image_url: str = "https://english.www.gov.cn/images/202404/20/6622f970c6d0868f1ea91c82.jpeg",
+    model_name: str = "openai",
+    **kwargs,
+):
+    model = select_model(model_name, **kwargs)
+    print(locals())
+
+    if image_path:
+        image = Image.open(image_path).convert("RGB")
+    else:
+        image = load_image_from_url(image_url)
+
+    inputs = [prompt, image]
+    print(model.run_many(inputs, num=3))
+
+
 """
 p modeling.py test_model --model_name gemini
 p modeling.py test_model --model_name openai
@@ -467,6 +523,11 @@ p modeling.py test_model --model_name gemma
 python modeling.py test_model --model_name gpt-4o-2024-05-13
 python modeling.py test_model --model_name claude-3-5-sonnet-20240620
 python modeling.py test_model --model_name gemini-1.5-pro-001
+
+# Run many outputs
+p modeling.py test_run_many --model_name gemini-1.5-pro-001
+p modeling.py test_run_many --model_name gpt-4o-2024-05-13
+p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 """
 
 
