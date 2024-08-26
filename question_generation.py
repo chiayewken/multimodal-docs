@@ -17,43 +17,43 @@ from data_loading import (
 from modeling import select_model, EvalModel
 
 
-def check_is_question_valid(
+def check_question(
     question: str,
     target: List[Union[str, Image.Image]],
+    context: str,
     category: str,
-    context: List[Union[str, Image.Image]],
     model: EvalModel,
-) -> Tuple[bool, str]:
-    instruction = "\n".join(
-        [
-            f"You are given a document context and a question based on the target {category}. Your task is to determine whether the question is valid or invalid.",
-            f"1. If the target does not contain any {category}, it is invalid."
-            f"2. If the question does not address the {category}, it is invalid."
-            f"3. If the question is confusing or cannot be answered, it is invalid."
-            f"4. If the question is trivial or can be answered without the {category}, it is invalid."
-            "Give a brief analysis of the question and then output either <valid> or <invalid>.",
-        ]
-    )
-
-    inputs: List[Union[str, Image.Image]] = [
-        instruction,
-        "Document context:",
-        *context,
-        f"Question to be checked: '{question}'",
-        f"Target {category}:",
-        *target,
+) -> bool:
+    checks = [
+        f"Based on the document content and question, answer yes or no only: Does the content contain any {category}?",
+        f"Based on the document content and question, answer yes or no only: Is the question relevant to the {category}?",
+        f"Based on the document content and question, answer yes or no only: Are the {category} necessary in order to answer the question?",
+        f"Based on the document content and question, answer yes or no only: Is the question clear and answerable based on the {category}?",
     ]
 
-    output = model.run(inputs)
-    info = dict(
-        question=question,
-        category=category,
-        context=str([type(o) for o in context]),
-        target=str([type(o) for o in target]),
-        output=output,
-    )
-    print(json.dumps(info, indent=2))
-    return "<valid>" in output, output
+    for instruction in checks:
+        inputs: List[Union[str, Image.Image]] = [
+            instruction,
+            f"Context: {context}",
+            f"{category.capitalize()}:",
+            *target,
+            f"Question to be checked: '{question}'",
+        ]
+
+        output = model.run(inputs)
+        info = dict(
+            question=question,
+            category=category,
+            instruction=instruction,
+            output=output,
+        )
+
+        print(json.dumps(info, indent=2))
+        pred = "yes" if "yes" in output.lower() else "no"
+        if pred == "no":
+            return False
+
+    return True
 
 
 def prepare_target_and_context(
@@ -88,7 +88,6 @@ def generate_questions(
     random_seed: int = 0,
 ):
     print(locals())
-    instruction = "Based on this document, can you generate a challenging question that requires reasoning over the multimodal content of texts, figures, or tables? Output the question only."
     random.seed(random_seed)
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
     valid_counts = []
@@ -113,7 +112,11 @@ def generate_questions(
 
                     name = random.choice(model_names)
                     model = select_model(name)
-                    mapping = dict(Table="tables", Picture="figures", Text="texts")
+                    mapping = dict(
+                        Table="tables",
+                        Picture="figures or diagrams or charts",
+                        Text="texts",
+                    )
                     instruction = f"Based on the target {mapping[label]} in this document, can you generate a challenging question? Output the question only."
                     inputs = [
                         instruction,
@@ -122,24 +125,25 @@ def generate_questions(
                         f"Target {mapping[label]}:",
                         *target,
                     ]
-                    question: str = model.run(inputs).strip()
 
-                    is_valid, checking_output = check_is_question_valid(
-                        question, target, mapping[label], context, model
+                    question: str = model.run(inputs).strip()
+                    print(dict(doc=p.source, page=p.number, question=question))
+                    is_valid = check_question(
+                        question, target, p.text, mapping[label], model
                     )
+
                     if is_valid:
-                        answer = model.run([question, *inputs[1:]]).strip()
                         samples.append(
                             MultimodalSample(
                                 question=question,
-                                answer=answer,
+                                answer="",
                                 category=mapping[label],
-                                checking_output=checking_output,
                                 evidence_pages=[p.number],
-                                source=p.source,
+                                source=doc_path,
                                 annotator=name,
                             )
                         )
+
                         print(samples[-1].model_dump_json(indent=2))
                         print(samples[-1].model_dump_json(), file=f)
                         valid_counts.append(1)

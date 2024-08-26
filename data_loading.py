@@ -4,7 +4,7 @@ import io
 import json
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 # noinspection PyPackageRequirements
 import fitz
@@ -14,6 +14,12 @@ from PIL import Image
 from fire import Fire
 from huggingface_hub import hf_hub_download
 from pydantic import BaseModel
+from reportlab.platypus import (
+    Paragraph,
+    Image as DocImage,
+    SimpleDocTemplate,
+    PageBreak,
+)
 from tqdm import tqdm
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
@@ -141,6 +147,9 @@ class MultimodalPage(BaseModel):
     def get_tables_and_figures(self) -> List[MultimodalObject]:
         return [o for o in self.objects if o.category in ["Table", "Picture"]]
 
+    def get_full_image(self) -> Image.Image:
+        return convert_text_to_image(self.image_string)
+
 
 class MultimodalDocument(BaseModel):
     pages: List[MultimodalPage]
@@ -201,7 +210,6 @@ class MultimodalSample(BaseModel):
     question: str
     answer: str
     category: str
-    checking_output: str = ""
     evidence_pages: List[int] = []
     raw_output: str = ""
     pred: str = ""
@@ -263,6 +271,32 @@ def process_documents(*paths: str):
         path_out.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(path_out))
         print(dict(path_out=str(path_out), pages=len(doc.pages)))
+
+
+def save_multimodal_document(
+    content: List[Union[str, Image.Image]],
+    path: str,
+    max_size: int = 512,
+):
+    story = []
+    for item in tqdm(content, desc=path):
+        if isinstance(item, str):
+            if item == "":
+                story.append(PageBreak())
+            else:
+                story.append(Paragraph(item))
+        elif isinstance(item, Image.Image):
+            ratio = min(max_size / item.width, max_size / item.height)
+            width = round(item.width * ratio)
+            height = round(item.height * ratio)
+            content = io.BytesIO()
+            item.save(content, format=item.format)
+            story.append(DocImage(content, width=width, height=height))
+
+    Path(path).parent.mkdir(exist_ok=True, parents=True)
+    template = SimpleDocTemplate(path)
+    template.build(story)
+    print(Path(path).absolute())
 
 
 """

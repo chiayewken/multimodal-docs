@@ -23,6 +23,7 @@ from data_loading import (
     MultimodalData,
     MultimodalDocument,
     MultimodalObject,
+    save_multimodal_document,
 )
 from modeling import select_model
 from reading import get_doc_images
@@ -278,6 +279,33 @@ def test_document_lengths(*paths: str):
     print(sum(len(d.pages) for d in docs) / len(docs))
 
 
+def test_questions(path: str, path_out="demo.pdf", num_sample: int = 30):
+    data = MultimodalData.load(path)
+    content = []
+    mapping = {}
+    random.seed(0)
+
+    sample: MultimodalSample
+    for sample in tqdm(random.sample(data.samples, k=num_sample)):
+        if sample.source not in mapping:
+            mapping[sample.source] = MultimodalDocument.load(sample.source)
+        doc = mapping[sample.source]
+        pages = [p for p in doc.pages if p.number in sample.evidence_pages]
+        assert len(pages) == 1
+        content.extend(
+            [
+                f"Category: {sample.category}",
+                f"Annotator: {sample.annotator}",
+                f"Source: {sample.source} (Page {sample.evidence_pages[0]})",
+                f"Question: {sample.question}",
+                pages[0].get_full_image(),
+                "",
+            ]
+        )
+
+    save_multimodal_document(content, path_out)
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -292,6 +320,7 @@ p analysis.py test_doc_parsing data/train/*.json
 p analysis.py show_document data/train/2012.14143v1.json
 p analysis.py test_object_categories data/train/*.json
 p analysis.py test_document_lengths data/test/*.json
+p analysis.py test_questions data/questions/test.json
 """
 
 
