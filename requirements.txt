@@ -29,4 +29,5 @@ lmdeploy[all]==0.5.1
 labelImg==1.8.6
 ultralytics==8.2.73
 huggingface-hub==0.24.5
-timm==1.0.9
+timm==1.0.9  # JINA-CLIP
+FlagEmbedding==1.2.11  # BGE-M3

@@ -1,4 +1,6 @@
 import hashlib
+from FlagEmbedding import BGEM3FlagModel
+
 from typing import Optional, List, Dict
 
 import torch
@@ -82,6 +84,40 @@ class BM25PageRetriever(MultimodalRetriever):
         assert len(scores) == len(doc.pages)
         for i, page in enumerate(doc.pages):
             page.score = scores[i]
+
+        return doc
+
+
+class BGEM3Retriever(MultimodalRetriever):
+    cache: Dict[str, dict] = {}
+    client: Optional[BGEM3FlagModel] = None
+
+    def load(self):
+        if self.client is None:
+            self.client = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
+
+    def embed_texts(self, texts: List[str]) -> dict:
+        self.load()
+        return self.client.encode(
+            texts, return_dense=True, return_sparse=True, return_colbert_vecs=True
+        )
+
+    def embed_document(self, doc: MultimodalDocument) -> dict:
+        texts = [page.text for page in doc.pages]
+        key = str(texts)
+        if key not in self.cache:
+            self.cache[key] = self.embed_texts(texts)
+        return self.cache[key]
+
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
+        self.load()
+        doc = doc.copy(deep=True)
+        doc_embeds = self.embed_document(doc)["colbert_vecs"]
+        query_embed = self.embed_texts([query])["colbert_vecs"][0]
+
+        assert len(doc_embeds) == len(doc.pages)
+        for i, page in enumerate(doc.pages):
+            page.score = self.client.colbert_score(query_embed, doc_embeds[i]).item()
 
         return doc
 
@@ -270,6 +306,8 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return BM25PageRetriever(**kwargs)
     elif name == "colpali":
         return ColpaliRetriever(**kwargs)
+    elif name == "bge":
+        return BGEM3Retriever(**kwargs)
     raise KeyError(name)
 
 
