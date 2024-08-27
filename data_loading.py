@@ -143,6 +143,7 @@ class MultimodalPage(BaseModel):
     text: str
     image_string: str
     source: str
+    score: float = 0.0
 
     def get_tables_and_figures(self) -> List[MultimodalObject]:
         return [o for o in self.objects if o.category in ["Table", "Picture"]]
@@ -150,9 +151,30 @@ class MultimodalPage(BaseModel):
     def get_full_image(self) -> Image.Image:
         return convert_text_to_image(self.image_string)
 
+    @classmethod
+    def from_text(cls, text: str):
+        return MultimodalPage(
+            text=text, number=0, objects=[], image_string="", source=""
+        )
+
+    @classmethod
+    def from_image(cls, image: Image.Image):
+        return MultimodalPage(
+            image_string=convert_image_to_text(image),
+            number=0,
+            objects=[],
+            text="",
+            source="",
+        )
+
 
 class MultimodalDocument(BaseModel):
     pages: List[MultimodalPage]
+
+    def get_page(self, i: int) -> MultimodalPage:
+        pages = [p for p in self.pages if p.number == i]
+        assert len(pages) == 1
+        return pages[0]
 
     @classmethod
     def load_from_pdf(cls, path: str, dpi: int = 150, detector: ObjectDetector = None):

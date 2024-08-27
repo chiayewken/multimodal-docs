@@ -1,14 +1,11 @@
 import hashlib
 from typing import Optional, List, Dict
 
-import numpy as np
 import torch
 from PIL import Image
 from fire import Fire
-from nltk import sent_tokenize
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
 from torch import nn
 from torch.utils.data import DataLoader
@@ -16,154 +13,53 @@ from transformers import (
     PaliGemmaPreTrainedModel,
     PaliGemmaForConditionalGeneration,
     PaliGemmaProcessor,
-    SiglipModel,
-    SiglipProcessor,
+    AutoModel,
+    PreTrainedModel,
 )
 
-from data_loading import MultimodalObject, MultimodalDocument
-from modeling import OpenAIModel
+from data_loading import MultimodalDocument
 
 
 class MultimodalRetriever(BaseModel, arbitrary_types_allowed=True):
-    top_k: int
-
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         raise NotImplementedError
 
-    def get_top_objects(self, doc: MultimodalDocument):
+    @staticmethod
+    def get_top_pages(doc: MultimodalDocument, k: int) -> List[int]:
         # Get top-k in terms of score but maintain the original order
         doc = doc.copy(deep=True)
-        objects = sorted(doc.objects, key=lambda x: x.score, reverse=True)
-        threshold = objects[: self.top_k][-1].score
-        return MultimodalDocument(
-            objects=[x for x in doc.objects if x.score >= threshold]
-        )
+        pages = sorted(doc.pages, key=lambda x: x.score, reverse=True)
+        threshold = pages[:k][-1].score
+        return [p.number for p in doc.pages if p.score >= threshold]
 
 
-class ClipTextRetriever(MultimodalRetriever):
-    model_path: str = "clip-ViT-L-14"
-    model: Optional[SentenceTransformer] = None
-    max_length: int = 77
+class ClipRetriever(MultimodalRetriever):
+    path: str = "jinaai/jina-clip-v1"  # Document-optimized version of CLIP
+    client: Optional[PreTrainedModel] = None
 
     def load(self):
-        if self.model is None:
-            self.model = SentenceTransformer(self.model_path)
+        if self.client is None:
+            self.client = AutoModel.from_pretrained(self.path, trust_remote_code=True)
+            self.client = self.client.cuda()
 
-    def check_length(self, text) -> int:
-        return self.model.tokenize([text])["input_ids"].shape[1]
-
-    def truncate_text(self, text: str, sep: str = " ") -> str:
-        if self.check_length(text) <= self.max_length:
-            return text
-
-        words = text.split(sep)
-        while self.check_length(sep.join(words)) > self.max_length:
-            words = words[:-1]
-
-        new = sep.join(words)
-        print(dict(original=self.check_length(text), truncated=self.check_length(new)))
-        return new
-
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         self.load()
         doc = doc.copy(deep=True)
-        query_embeds = self.model.encode(query.text)
+        query_embeds = self.client.encode_text([query])
 
-        # Split long texts to avoid CLIP max context length error (77 tokens)
-        groups = {}
-        for i, x in enumerate(doc.objects):
-            if x.image_string:
-                x.text = self.truncate_text(x.text)
-                groups[i] = [x]
-            else:
-                assert x.text
-                for text in sent_tokenize(x.text):
-                    o = MultimodalObject(page=x.page, text=self.truncate_text(text))
-                    groups.setdefault(i, []).append(o)
+        for page in doc.pages:
+            text_embeds = self.client.encode_text([page.text])
+            page.score = cos_sim(query_embeds, text_embeds).item()
+            objects = page.get_tables_and_figures()
 
-        # If an object text is split into multiple parts, then we select the highest scoring part
-        for i, objects in groups.items():
-            embeds = np.stack([self.model.encode(x.text) for x in objects])
-            # noinspection PyTypeChecker
-            array = cos_sim(query_embeds, embeds)
-            assert array.ndim == 2
-            scores = array.tolist()[0]
-            j = scores.index(max(scores))
-            doc.objects[i].score = max(scores)
-            doc.objects[i].snippet = objects[j].text
-
-        return doc
-
-
-class PageRetriever(ClipTextRetriever):
-    model_path: str = "sentence-transformers/all-mpnet-base-v2"
-    embed_cache: Dict[str, np.ndarray] = {}
-
-    def text_split(self, text: str) -> List[str]:
-        parts = []
-        for sent in sent_tokenize(text):
-            for chunk in sent.split("\n"):
-                if chunk.strip():
-                    parts.append(self.truncate_text(chunk.strip()))
-        return parts
-
-    def embed_texts(self, texts: List[str]) -> np.ndarray:
-        self.load()
-        key = "".join(texts)
-        if key not in self.embed_cache:
-            self.embed_cache[key] = self.model.encode(texts)
-        return self.embed_cache[key]
-
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
-        self.load()
-        doc = doc.copy(deep=True)
-        query_embeds = self.model.encode(query.text)
-
-        # Split long texts to avoid CLIP max context length error (77 tokens)
-        groups = {}
-        for i, x in enumerate(doc.objects):
-            if not x.image_string:
-                for text in self.text_split(x.text):
-                    o = MultimodalObject(page=x.page, text=text)
-                    groups.setdefault(i, []).append(o)
-
-        # Assign the relevance of each object as the top-scoring text chunk
-        for i, objects in groups.items():
-            embeds = self.embed_texts([x.text for x in objects])
-            # noinspection PyTypeChecker
-            array = cos_sim(query_embeds, embeds)
-            assert array.ndim == 2
-            scores = array.tolist()[0]
-            j = scores.index(max(scores))
-            doc.objects[i].score = max(scores)
-            doc.objects[i].snippet = objects[j].text
-            for j, o in enumerate(objects):
-                o.score = scores[j]
-
-        # Assign the relevance of each page as the top-scoring object
-        page_scores = {}
-        for o in doc.objects:
-            assert o.page != 0
-            page_scores.setdefault(o.page, 0)
-            page_scores[o.page] = max(page_scores[o.page], o.score)
-
-        top_pages = sorted(page_scores, key=lambda p: page_scores[p])[-self.top_k :]
-        doc.objects = [
-            x
-            for x in doc.objects
-            if (x.page in top_pages or (x.page - 1 in top_pages and x.image_string))
-        ]
-        print(dict(query=query.text))
-        for objects in groups.values():
-            for o in objects:
-                if o.score == page_scores[o.page] and o.page in top_pages:
-                    print(dict(page=o.page, top_text=o.text, score=o.score))
+            if objects:
+                image_embeds = self.client.encode_image(
+                    [x.get_image() for x in objects]
+                )
+                image_scores = cos_sim(query_embeds, image_embeds)
+                for i, o in enumerate(objects):
+                    o.score = image_scores[:, i].item()
+                    page.score = max(page.score, o.score)
 
         return doc
 
@@ -172,68 +68,21 @@ class BM25PageRetriever(MultimodalRetriever):
     cache: Dict[str, BM25Okapi] = {}
 
     def load_ranker(self, doc: MultimodalDocument) -> BM25Okapi:
-        corpus = [o.text.split() for o in doc.objects]
+        corpus = [o.text.split() for o in doc.pages]
         key = str(corpus)
         if key not in self.cache:
             self.cache[key] = BM25Okapi(corpus)
 
         return self.cache[key]
 
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         doc = doc.copy(deep=True)
         ranker = self.load_ranker(doc)
-        scores = ranker.get_scores(query.text.split())
-        assert len(scores) == len(doc.objects)
-        for i, o in enumerate(doc.objects):
-            o.score = scores[i]
+        scores = ranker.get_scores(query.split())
+        assert len(scores) == len(doc.pages)
+        for i, page in enumerate(doc.pages):
+            page.score = scores[i]
 
-        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
-        doc.objects = sorted(doc.objects, key=lambda x: x.page)
-        return doc
-
-
-class SiglipRetriever(MultimodalRetriever):
-    path: str = "google/siglip-so400m-patch14-384"
-    model: Optional[SiglipModel] = None
-    processor: Optional[SiglipProcessor] = None
-    device: str = "cuda"
-    cache: Dict[str, BM25Okapi] = {}
-
-    def load(self):
-        if self.model is None:
-            self.model = SiglipModel.from_pretrained(self.path)
-            self.model = self.model.to(self.device).eval()
-            self.processor = SiglipProcessor.from_pretrained(self.path)
-
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
-        doc = doc.copy(deep=True)
-        self.load()
-        images = [x.get_image().convert("RGB") for x in doc.objects if x.image_string]
-        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
-        inputs = self.processor(
-            text=[query.text],
-            images=images,
-            padding="max_length",
-            return_tensors="pt",
-            truncation=True,
-        )
-
-        with torch.no_grad():
-            # noinspection PyTypeChecker
-            outputs = self.model(**inputs.to(self.device))
-        logits_per_image = outputs.logits_per_image
-        scores = torch.sigmoid(logits_per_image).squeeze()  # probabilities
-        assert scores.ndim == 1
-        assert len(scores) == len(indices)
-        for i, s in zip(indices, scores):
-            doc.objects[i].score = float(s)
-
-        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
-        doc.objects = sorted(doc.objects, key=lambda x: x.page)
         return doc
 
 
@@ -378,19 +227,16 @@ class ColpaliRetriever(MultimodalRetriever):
         self.cache[hash_id] = ds
         return ds
 
-    def run(
-        self, query: MultimodalObject, doc: MultimodalDocument
-    ) -> MultimodalDocument:
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         doc = doc.copy(deep=True)
         self.load()
-        images = [x.get_image() for x in doc.objects if x.image_string]
-        indices = [i for i, x in enumerate(doc.objects) if x.image_string]
+        images = [page.get_full_image() for page in doc.pages]
         ds = self.load_document_images(images)
 
         # run inference - queries
         # noinspection PyTypeChecker
         dataloader = DataLoader(
-            [query.text],
+            [query],
             batch_size=4,
             shuffle=False,
             collate_fn=lambda x: self.process_queries(
@@ -410,63 +256,39 @@ class ColpaliRetriever(MultimodalRetriever):
         retriever_evaluator = CustomEvaluator()
         scores = retriever_evaluator.evaluate(qs, ds).squeeze()
         assert scores.ndim == 1
-        assert len(scores) == len(indices)
-        for i, s in zip(indices, scores):
-            doc.objects[i].score = float(s)
+        assert len(scores) == len(doc.pages)
+        for i, page in enumerate(doc.pages):
+            page.score = float(scores[i])
 
-        doc.objects = sorted(doc.objects, key=lambda x: x.score)[::-1][: self.top_k]
-        doc.objects = sorted(doc.objects, key=lambda x: x.page)
         return doc
 
 
 def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
-    if name == "clip_text":
-        return ClipTextRetriever(**kwargs)
-    elif name == "page":
-        return PageRetriever(**kwargs)
+    if name == "clip":
+        return ClipRetriever(**kwargs)
     elif name == "bm25":
         return BM25PageRetriever(**kwargs)
     elif name == "colpali":
         return ColpaliRetriever(**kwargs)
-    elif name == "siglip":
-        return SiglipRetriever(**kwargs)
     raise KeyError(name)
 
 
-def test_retriever(name: str = "clip_text", **kwargs):
-    generator = OpenAIModel()
-    retriever = select_retriever(name, top_k=2, **kwargs)
-
-    doc = MultimodalDocument(
-        objects=[
-            MultimodalObject(text="The dogs are playing in the snow"),
-            MultimodalObject(text="A cat on the table"),
-            MultimodalObject(text="A picture of an event"),
-        ]
-    )
-
-    for path in [
-        "data/demo_image_dogs.png",
-        "data/demo_image_ceremony.jpeg",
-        "data/demo_image_report.png",
-    ]:
-        doc.objects.append(MultimodalObject.from_image(Image.open(path), text=path))
+def test_retriever(path: str = "data/test/NYSE_FBHS_2023.json", name: str = "clip"):
+    retriever = select_retriever(name)
+    doc = MultimodalDocument.load(path)
+    doc.pages = doc.pages[:5]
 
     for query in [
-        "How many people are there at the ceremony?",
-        "What are the animals doing?",
-        "Which year had more equity?",
+        "What is the market capitalization?",
+        "What color suit is the CEO wearing?",
+        "What are all the brands under the company?",
     ]:
-        context = retriever.run(MultimodalObject(text=query), doc)
-        for o in context.objects:
-            print(o.dict(exclude={"image_string"}))
-        context.objects.insert(0, MultimodalObject(text=query))
-
-        inputs = [x.get_image() or x.text for x in context.objects]
-        outputs = generator.run(inputs)
-        print(dict(query=query))
-        print(dict(outputs=outputs))
-        print()
+        output = retriever.run(query, doc)
+        for i in retriever.get_top_pages(output, k=1):
+            print(dict(query=query))
+            print(dict(scores=[p.score for p in output.pages]))
+            print(output.get_page(i).dict(exclude={"image_string", "objects"}))
+        print("#" * 80)
 
 
 if __name__ == "__main__":
