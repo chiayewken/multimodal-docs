@@ -1,8 +1,7 @@
 import re
 from pathlib import Path
-from typing import Tuple, List
+from typing import List
 
-import pandas as pd
 from fire import Fire
 from tqdm import tqdm
 
@@ -10,7 +9,6 @@ from data_loading import (
     MultimodalData,
     MultimodalObject,
     MultimodalDocument,
-    MultimodalSample,
     Judgement,
 )
 from modeling import select_model
@@ -21,28 +19,25 @@ def safe_divide(a: float, b: float) -> float:
     return a / b if b != 0 else 0
 
 
-def test_retriever(data_path: str, retriever_name: str, top_k: int = 5):
-    retriever = select_retriever(retriever_name, top_k=top_k)
+def test_retriever(data_path: str, retriever_name: str):
+    retriever = select_retriever(retriever_name)
     data = MultimodalData.load(data_path)
     scores = []
 
-    def score_fn(s: MultimodalSample) -> Tuple[float, float, float]:
-        num_correct = len(set(s.evidence_pages) & set(s.retrieved_pages))
-        precision = safe_divide(num_correct, len(s.retrieved_pages))
-        recall = safe_divide(num_correct, len(s.evidence_pages))
-        f1 = safe_divide(2 * precision * recall, (precision + recall))
-        return precision, recall, f1
-
-    for sample in tqdm(data.samples, desc=retriever_name):
+    progress = tqdm(data.samples, desc=retriever_name)
+    for sample in progress:
         doc = MultimodalDocument.load(sample.source)
-        query = MultimodalObject(text=sample.question)
-        pages = retriever.run(query, doc).objects
-        sample.retrieved_pages = [p.page for p in pages]
-        scores.append(score_fn(sample))
+        output = retriever.run(sample.question, doc)
 
-    df = pd.DataFrame(scores, columns=["precision", "recall", "f1"])
-    df = df.apply(lambda x: x * 100)
-    print(df.mean(axis=0).round(2).to_dict())
+        # Calculate MRR score
+        sorted_pages = sorted(output.pages, key=lambda p: p.score, reverse=True)
+        sorted_ids = [p.number for p in sorted_pages]
+        assert len(sample.evidence_pages) == 1
+        rank = sorted_ids.index(sample.evidence_pages[0])
+        scores.append(1 / (rank + 1))
+        progress.set_postfix(score=sum(scores) / len(scores))
+
+    return sum(scores) / len(scores)
 
 
 def generate_answers(
@@ -117,14 +112,18 @@ def run_multi_judge(
 
 
 """
-p evaluation.py test_retriever data/questions.json --retriever_name bm25
-{'precision': 28.6, 'recall': 28.73, 'f1': 28.65}
+# Evaluate different retrieval methods
 
-p evaluation.py test_retriever data/questions.json --retriever_name colpali
-{'precision': 39.0, 'recall': 39.27, 'f1': 39.1}
+python evaluation.py test_retriever data/questions/test.json --retriever_name bm25
+[01:49<00:00,  2.45it/s, score=0.547]
+python evaluation.py test_retriever data/questions/test.json --retriever_name colpali
+[29:59<00:00,  6.69s/it, score=0.716]
+python evaluation.py test_retriever data/questions/test.json --retriever_name clip
+[28:10<00:00,  6.28s/it, score=0.487]
+python evaluation.py test_retriever data/questions/test.json --retriever_name bge
+[03:34<00:00,  1.25it/s, score=0.646]
 
-p evaluation.py test_retriever data/questions.json --retriever_name siglip
-{'precision': 29.2, 'recall': 29.33, 'f1': 29.25}
+# Generate answers and evaluate with multi-judge
 
 p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name bm25
 p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name colpali
