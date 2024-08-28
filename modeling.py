@@ -19,7 +19,7 @@ from transformers import (
     Idefics2ForConditionalGeneration,
 )
 
-from data_loading import load_image_from_url, convert_image_to_text
+from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
 
 try:
     # noinspection PyUnresolvedReferences
@@ -33,6 +33,19 @@ def get_environment_key(path: str, name: str) -> str:
     assert os.path.exists(path), f"Path {path} does not exist"
     load_dotenv(path)
     return os.environ[name]
+
+
+def resize_image(image: Image.Image, max_size: int) -> Image.Image:
+    width, height = image.size
+    if width <= max_size and height <= max_size:
+        return image
+    if width > height:
+        new_width = max_size
+        new_height = round(height * max_size / width)
+    else:
+        new_height = max_size
+        new_width = round(width * max_size / height)
+    return image.resize((new_width, new_height), Image.LANCZOS)
 
 
 class EvalModel(BaseModel, arbitrary_types_allowed=True):
@@ -269,16 +282,15 @@ class InternModel(EvalModel):
 
     def load(self):
         if self.client is None:
-            backend_config = lmdeploy.TurbomindEngineConfig(model_format="awq", tp=2)
+            backend_config = lmdeploy.TurbomindEngineConfig(model_format="awq")
             self.client = lmdeploy.pipeline(self.engine, backend_config=backend_config)
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         self.load()
-        texts = [x for x in inputs if isinstance(x, str)]
-        images = [x for x in inputs if isinstance(x, Image.Image)]
-        assert len(texts) == 1
         config = lmdeploy.GenerationConfig(max_new_tokens=self.max_output_tokens)
-        response = self.client((texts[0], images), generation_config=config)
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        images = [resize_image(x, 448) for x in inputs if isinstance(x, Image.Image)]
+        response = self.client((text, images), generation_config=config)
         return response.text
 
 
@@ -330,25 +342,18 @@ class IdeficsModel(EvalModel):
                 self.engine, torch_dtype=torch.float16
             )
             self.model = self.model.to(self.device).eval()
-            self.processor = Idefics2Processor.from_pretrained(
-                self.engine, size={"longest_edge": 700, "shortest_edge": 378}
-            )
+            self.processor = Idefics2Processor.from_pretrained(self.engine)
             torch.manual_seed(0)
             torch.cuda.manual_seed_all(0)
 
     def process_inputs(self, inputs: List[Union[str, Image.Image]]):
         self.load()
-        content = []
-        for x in inputs:
-            if isinstance(x, str):
-                content.append(dict(type="text", text=x))
-            elif isinstance(x, Image.Image):
-                content.append(dict(type="image"))
-            else:
-                raise ValueError(f"Unsupported input type: {type(x)}")
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        content = [dict(type="image") for x in inputs if isinstance(x, Image.Image)]
+        content.append(dict(type="text", text=text))
 
         messages = [dict(role="user", content=content)]
-        images = [x for x in inputs if isinstance(x, Image.Image)]
+        images = [resize_image(x, 384) for x in inputs if isinstance(x, Image.Image)]
         prompt = self.processor.apply_chat_template(
             messages, add_generation_prompt=True
         )
@@ -365,7 +370,7 @@ class IdeficsModel(EvalModel):
                 do_sample=True,  # Otherwise the outputs will be very repetitive
             )
             texts = self.processor.batch_decode(outputs, skip_special_tokens=True)
-            return texts[0].split(" \nAssistant: ", maxsplit=1)[1]
+            return texts[0].split("\nAssistant:", maxsplit=1)[1].strip()
 
 
 class CloudModel(EvalModel):
@@ -488,6 +493,23 @@ def test_model(
     print(model.run(inputs))
 
 
+def test_model_on_document(
+    path: str,
+    name: str,
+    prompt: str = "Can you explain the figures in this document?",
+    **kwargs,
+):
+    model = select_model(name, **kwargs)
+    doc = MultimodalDocument.load(path)
+
+    inputs = [prompt]
+    for page in doc.pages[:5]:
+        inputs.extend([o.get_image() for o in page.get_tables_and_figures()])
+        # inputs.append(page.text)
+
+    print(model.run(inputs))
+
+
 def test_run_many(
     prompt: str = "Can you extract the tables from this report?",
     image_path: str = "data/demo_image_report.png",
@@ -528,6 +550,9 @@ python modeling.py test_model --model_name gemini-1.5-pro-001
 p modeling.py test_run_many --model_name gemini-1.5-pro-001
 p modeling.py test_run_many --model_name gpt-4o-2024-05-13
 p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
+
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern
 """
 
 

@@ -24,10 +24,12 @@ tqdm==4.66.1
 transformers==4.42.4
 # Intern-VL
 pydantic==2.8.2
-lmdeploy[all]==0.5.1
+lmdeploy[all]==0.6.0a0
 #flash-attn==2.6.1
 labelImg==1.8.6
 ultralytics==8.2.73
 huggingface-hub==0.24.5
 timm==1.0.9  # JINA-CLIP
 FlagEmbedding==1.2.11  # BGE-M3
+bitsandbytes==0.43.3
+xformers==0.0.24
