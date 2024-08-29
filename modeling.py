@@ -1,5 +1,7 @@
+import copy
 import os
 import time
+import warnings
 from typing import Optional, List, Union
 
 import google.generativeai as genai
@@ -17,9 +19,20 @@ from transformers import (
     PaliGemmaProcessor,
     Idefics2Processor,
     Idefics2ForConditionalGeneration,
+    PreTrainedModel,
+    ProcessorMixin,
+    PreTrainedTokenizer,
 )
 
 from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
+from onevision import (
+    load_pretrained_model,
+    process_images,
+    tokenizer_image_token,
+    IMAGE_TOKEN_INDEX,
+    DEFAULT_IMAGE_TOKEN,
+    conv_templates,
+)
 
 try:
     # noinspection PyUnresolvedReferences
@@ -294,6 +307,57 @@ class InternModel(EvalModel):
         return response.text
 
 
+class OneVisionModel(EvalModel):
+    engine: str = "lmms-lab/llava-onevision-qwen2-7b-ov"
+    tokenizer: Optional[PreTrainedTokenizer] = None
+    model: Optional[PreTrainedModel] = None
+    processor: Optional[ProcessorMixin] = None
+
+    def load(self):
+        if self.model is None:
+            (
+                self.tokenizer,
+                self.model,
+                self.processor,
+                _,
+            ) = load_pretrained_model(self.engine, None, "llava_qwen")
+            self.model.eval()
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        warnings.filterwarnings("ignore")
+        images = [resize_image(x, 384) for x in inputs if isinstance(x, Image.Image)]
+        image_tensor = process_images(images, self.processor, self.model.config)
+        image_list = [x.to(dtype=torch.float16, device="cuda") for x in image_tensor]
+
+        conv_template = "qwen_1_5"
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        question = DEFAULT_IMAGE_TOKEN + f"\n{text}"
+        conv = copy.deepcopy(conv_templates[conv_template])
+        conv.append_message(conv.roles[0], question)
+        conv.append_message(conv.roles[1], None)
+        prompt_question = conv.get_prompt()
+
+        input_ids = (
+            tokenizer_image_token(
+                prompt_question, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+            )
+            .unsqueeze(0)
+            .to("cuda")
+        )
+        image_sizes = [x.size for x in images]
+
+        outputs = self.model.generate(
+            input_ids,
+            images=image_list,
+            image_sizes=image_sizes,
+            do_sample=False,
+            temperature=0,
+            max_new_tokens=self.max_output_tokens,
+        )
+        return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+
+
 class GemmaModel(EvalModel):
     engine: str = "google/paligemma-3b-mix-448"
     model: Optional[PaliGemmaForConditionalGeneration] = None
@@ -467,6 +531,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         gemma=GemmaModel,
         idefics=IdeficsModel,
         intern=InternModel,
+        onevision=OneVisionModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -540,6 +605,7 @@ p modeling.py test_model --model_name gemini_flash
 p modeling.py test_model --model_name claude_haiku
 p modeling.py test_model --model_name intern
 p modeling.py test_model --model_name gemma
+p modeling.py test_model --model_name onevision
 
 # CloudModel API
 python modeling.py test_model --model_name gpt-4o-2024-05-13
@@ -552,7 +618,8 @@ p modeling.py test_run_many --model_name gpt-4o-2024-05-13
 p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
-p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern -> good
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision -> can work but cannot understand well
 """
 
 
