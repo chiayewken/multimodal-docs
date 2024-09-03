@@ -4,6 +4,7 @@
 conda create -n docs python=3.10 -y
 conda activate docs
 pip install -r requirements.txt
+conda-pack -n docs -o env.tar.gz
 ```
 
 ### Inference Demo
