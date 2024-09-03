@@ -2733,15 +2733,12 @@ def load_pretrained_model(
                 or "llava-v1.6-34b" in model_name.lower()
                 or "llava-v1.5" in model_name.lower()
             ):
-                tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
                 if customized_config is None:
                     llava_cfg = LlavaConfig.from_pretrained(model_path)
                     if "v1.5" in model_name.lower():
                         llava_cfg.delay_load = (
                             True  # a workaround for correctly loading v1.5 models
                         )
-                else:
-                    llava_cfg = customized_config
 
                 tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
                 llava_cfg = LlavaConfig.from_pretrained(model_path)
@@ -3281,21 +3278,6 @@ conv_llava_llama_2 = Conversation(
     sep2="</s>",
 )
 
-conv_llava_llama_3 = Conversation(
-    system="You are a helpful language and vision assistant. "
-    "You are able to understand the visual content that the user provides, "
-    "and assist the user with a variety of tasks using natural language.",
-    roles=("user", "assistant"),
-    version="llama_v3",
-    messages=[],
-    offset=0,
-    sep="<|eot_id|>",
-    sep_style=SeparatorStyle.LLAMA_3,
-    tokenizer_id="meta-llama/Meta-Llama-3-8B-Instruct",
-    tokenizer=AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct"),
-    stop_token_ids=[128009],
-)
-
 conv_mistral_instruct = Conversation(
     system="",
     roles=("USER", "ASSISTANT"),
@@ -3481,7 +3463,6 @@ conv_templates = {
     "llava_v1": conv_llava_v1,
     "llava_v1_mmtag": conv_llava_v1_mmtag,
     "llava_llama_2": conv_llava_llama_2,
-    "llava_llama_3": conv_llava_llama_3,
     "llava_llama_2_simple": conv_llava_llama_2_simple,
     "llava_llama_2_mmtag": conv_llava_llama_2_mmtag,
     "llava_mistral_instruct": conv_mistral_instruct,
