@@ -2,7 +2,7 @@ import copy
 import os
 import time
 import warnings
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any
 
 import google.generativeai as genai
 import requests
@@ -312,6 +312,55 @@ class InternModel(EvalModel):
         return response.text
 
 
+class OwlModel(EvalModel):
+    engine: str = "mPLUG/mPLUG-Owl3-7B-240728"
+    model: Optional[PreTrainedModel] = None
+    tokenizer: Optional[PreTrainedTokenizer] = None
+    processor: Optional[Any] = None
+
+    def load(self):
+        if self.model is None or self.tokenizer is None or self.processor is None:
+            self.model = AutoModel.from_pretrained(
+                self.engine,
+                attn_implementation="sdpa",
+                trust_remote_code=True,
+                torch_dtype=torch.bfloat16,
+            ).cuda()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.engine, trust_remote_code=True
+            )
+            self.processor = self.model.init_processor(self.tokenizer)
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+
+        text_inputs = [x for x in inputs if isinstance(x, str)]
+        image_inputs = [x for x in inputs if isinstance(x, Image.Image)]
+
+        messages = [
+            {
+                "role": "user",
+                "content": "<|image|>" * len(image_inputs)
+                + "\n"
+                + "\n".join(text_inputs),
+            },
+            {"role": "assistant", "content": ""},
+        ]
+
+        processed_inputs = self.processor(messages, images=image_inputs, videos=None)
+        processed_inputs.to("cuda")
+        processed_inputs.update(
+            {
+                "tokenizer": self.tokenizer,
+                "max_new_tokens": self.max_output_tokens,
+                "decode_text": True,
+            }
+        )
+
+        outputs = self.model.generate(**processed_inputs)
+        return outputs[0]
+
+
 class CogVLMModel(EvalModel):
     engine: str = "THUDM/cogvlm2-llama3-chat-19B"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -614,6 +663,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         intern=InternModel,
         onevision=OneVisionModel,
         cogvlm=CogVLMModel,
+        owl=OwlModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -695,6 +745,7 @@ python modeling.py test_model --model_name claude-3-5-sonnet-20240620
 python modeling.py test_model --model_name gemini-1.5-pro-001
 python modeling.py test_model --model_name reka-core-20240501
 python modeling.py test_model --model_name cogvlm
+python modeling.py test_model --model_name owl (not very good)
 
 # Run many outputs
 p modeling.py test_run_many --model_name gemini-1.5-pro-001
@@ -707,6 +758,7 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevis
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefics (good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-core-20240501 (error for > 6 images)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name cogvlm (multi-image not supported)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name owl (bad)
 
 """
 

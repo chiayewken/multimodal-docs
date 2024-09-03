@@ -34,3 +34,4 @@ FlagEmbedding==1.2.11  # BGE-M3
 bitsandbytes==0.43.3
 xformers==0.0.24
 conda-pack==0.8.0
+icecream==2.1.3
