@@ -250,22 +250,24 @@ class RekaModel(EvalModel):
 
     @staticmethod
     def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
-        content = []
+        messages = []
+        if len([x for x in inputs if isinstance(x, Image.Image)]) > 6:
+            raise ValueError("RekaModel only supports up to 6 images.")
 
+        for x in inputs:
+            if isinstance(x, Image.Image):
+                image_url = f"data:image/png;base64,{convert_image_to_text(x)}"
+                content = [dict(type="image_url", image_url=image_url)]
+                messages.append(dict(role="user", content=content))
+
+        content = []
         for x in inputs:
             if isinstance(x, str):
                 content.append(dict(type="text", text=x))
-            elif isinstance(x, Image.Image):
-                content.append(
-                    dict(
-                        type="image_url",
-                        image_url=f"data:image/png;base64,{convert_image_to_text(x)}",
-                    )
-                )
-            else:
-                raise ValueError(f"Unsupported input type: {type(x)}")
+        if content:
+            messages.append(dict(role="user", content=content))
 
-        return [dict(content=content, role="user")]
+        return messages
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         self.load()
@@ -448,8 +450,10 @@ class CloudModel(EvalModel):
             return get_environment_key(".env", "CLAUDE_KEY")
         elif self.engine.startswith("gemini"):
             return get_environment_key(".env", "GEMINI_KEY")
+        elif self.engine.startswith("reka"):
+            return get_environment_key(".env", "REKA_KEY")
         else:
-            raise ValueError(f"Unknown engine: {self.engine}")
+            raise ValueError(f"Unknown engine cannot find key: {self.engine}")
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         contents = [
@@ -611,6 +615,7 @@ p modeling.py test_model --model_name onevision
 python modeling.py test_model --model_name gpt-4o-2024-05-13
 python modeling.py test_model --model_name claude-3-5-sonnet-20240620
 python modeling.py test_model --model_name gemini-1.5-pro-001
+python modeling.py test_model --model_name reka-core-20240501
 
 # Run many outputs
 p modeling.py test_run_many --model_name gemini-1.5-pro-001
@@ -618,8 +623,11 @@ p modeling.py test_run_many --model_name gpt-4o-2024-05-13
 p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
-p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern -> good
-p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision -> can work but cannot understand well
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern (good)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision (not very good)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefics (rubbish for > 6 images)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-core-20240501 (error for > 6 images)
+
 """
 
 
