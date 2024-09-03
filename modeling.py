@@ -397,16 +397,14 @@ class GemmaModel(EvalModel):
 
 
 class IdeficsModel(EvalModel):
-    engine: str = "HuggingFaceM4/idefics2-8b-chatty"
+    engine: str = "TIGER-Lab/Mantis-8B-Idefics2"  # Optimized for long interleaved cases
     model: Optional[Idefics2ForConditionalGeneration] = None
     processor: Optional[Idefics2Processor] = None
     device: str = "cuda"
 
     def load(self):
         if self.model is None:
-            self.model = Idefics2ForConditionalGeneration.from_pretrained(
-                self.engine, torch_dtype=torch.float16
-            )
+            self.model = Idefics2ForConditionalGeneration.from_pretrained(self.engine)
             self.model = self.model.to(self.device).eval()
             self.processor = Idefics2Processor.from_pretrained(self.engine)
             torch.manual_seed(0)
@@ -433,10 +431,10 @@ class IdeficsModel(EvalModel):
             outputs = self.model.generate(
                 **self.process_inputs(inputs),
                 max_new_tokens=self.max_output_tokens,
-                do_sample=True,  # Otherwise the outputs will be very repetitive
+                do_sample=False,
             )
             texts = self.processor.batch_decode(outputs, skip_special_tokens=True)
-            return texts[0].split("\nAssistant:", maxsplit=1)[1].strip()
+            return texts[0].split("Assistant:", maxsplit=1)[-1].strip()
 
 
 class CloudModel(EvalModel):
@@ -625,7 +623,7 @@ p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern (good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision (not very good)
-p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefics (rubbish for > 6 images)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefics (good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-core-20240501 (error for > 6 images)
 
 """
