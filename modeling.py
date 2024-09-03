@@ -22,6 +22,9 @@ from transformers import (
     PreTrainedModel,
     ProcessorMixin,
     PreTrainedTokenizer,
+    AutoModel,
+    AutoTokenizer,
+    AutoModelForCausalLM,
 )
 
 from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
@@ -309,6 +312,82 @@ class InternModel(EvalModel):
         return response.text
 
 
+class CogVLMModel(EvalModel):
+    engine: str = "THUDM/cogvlm2-llama3-chat-19B"
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    torch_type: torch.dtype = (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+        else torch.float16
+    )
+
+    tokenizer: Optional[PreTrainedTokenizer] = None
+    model: Optional[PreTrainedModel] = None
+
+    def load(self):
+        if self.tokenizer is None or self.model is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.engine, trust_remote_code=True
+            )
+            self.model = (
+                AutoModelForCausalLM.from_pretrained(
+                    self.engine,
+                    torch_dtype=self.torch_type,
+                    trust_remote_code=True,
+                )
+                .to(self.device)
+                .eval()
+            )
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+
+        text_inputs = [x for x in inputs if isinstance(x, str)]
+        image_inputs = [x for x in inputs if isinstance(x, Image.Image)]
+
+        query = "\n".join(text_inputs)
+        images = [img.convert("RGB") for img in image_inputs]
+
+        input_by_model = self.model.build_conversation_input_ids(
+            self.tokenizer,
+            query=query,
+            history=[],
+            images=images if images else None,
+            template_version="chat",
+        )
+
+        model_inputs = {
+            "input_ids": input_by_model["input_ids"].unsqueeze(0).to(self.device),
+            "token_type_ids": input_by_model["token_type_ids"]
+            .unsqueeze(0)
+            .to(self.device),
+            "attention_mask": input_by_model["attention_mask"]
+            .unsqueeze(0)
+            .to(self.device),
+            "images": [
+                [
+                    img.to(self.device).to(self.torch_type)
+                    for img in input_by_model["images"]
+                ]
+            ]
+            if images
+            else None,
+        }
+
+        gen_kwargs = {
+            "max_new_tokens": self.max_output_tokens,
+            "pad_token_id": 128002,
+        }
+
+        with torch.no_grad():
+            outputs = self.model.generate(**model_inputs, **gen_kwargs)
+            outputs = outputs[:, model_inputs["input_ids"].shape[1] :]
+            response = self.tokenizer.decode(outputs[0])
+            response = response.split("<|end_of_text|>")[0]
+
+        return response.strip()
+
+
 class OneVisionModel(EvalModel):
     engine: str = "lmms-lab/llava-onevision-qwen2-7b-ov"
     tokenizer: Optional[PreTrainedTokenizer] = None
@@ -534,6 +613,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         idefics=IdeficsModel,
         intern=InternModel,
         onevision=OneVisionModel,
+        cogvlm=CogVLMModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -609,11 +689,12 @@ p modeling.py test_model --model_name intern
 p modeling.py test_model --model_name gemma
 p modeling.py test_model --model_name onevision
 
-# CloudModel API
+# Single-image
 python modeling.py test_model --model_name gpt-4o-2024-05-13
 python modeling.py test_model --model_name claude-3-5-sonnet-20240620
 python modeling.py test_model --model_name gemini-1.5-pro-001
 python modeling.py test_model --model_name reka-core-20240501
+python modeling.py test_model --model_name cogvlm
 
 # Run many outputs
 p modeling.py test_run_many --model_name gemini-1.5-pro-001
@@ -625,6 +706,7 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision (not very good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefics (good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-core-20240501 (error for > 6 images)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name cogvlm (multi-image not supported)
 
 """
 
