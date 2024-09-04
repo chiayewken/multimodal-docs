@@ -299,6 +299,29 @@ class ColpaliRetriever(MultimodalRetriever):
         return doc
 
 
+class HybridRetriever(MultimodalRetriever):
+    # Use Reciprocal Rank Fusion (RRF) scores to combine multiple retrievers
+    models: List[MultimodalRetriever] = [BGEM3Retriever(), ColpaliRetriever()]
+    k: int = 60  # Hyperparameter
+
+    def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
+        doc = doc.copy(deep=True)
+        results = [model.run(query, doc) for model in self.models]
+
+        # Calculate RRF scores
+        scores = dict()
+        for res in results:
+            sorted_pages = sorted(res.pages, key=lambda p: p.score, reverse=True)
+            for rank, page in enumerate(sorted_pages, start=1):
+                scores.setdefault(page.number, 0)
+                scores[page.number] += 1 / (self.k + rank)
+
+        # Update scores
+        for page in doc.pages:
+            page.score = scores[page.number]
+        return doc
+
+
 def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
     if name == "clip":
         return ClipRetriever(**kwargs)
@@ -308,6 +331,8 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return ColpaliRetriever(**kwargs)
     elif name == "bge":
         return BGEM3Retriever(**kwargs)
+    elif name == "hybrid":
+        return HybridRetriever(**kwargs)
     raise KeyError(name)
 
 
