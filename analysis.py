@@ -333,16 +333,16 @@ p analysis.py test_document_lengths data/test/*.json
 p analysis.py test_questions data/questions/test.json
 
 p analysis.py test_retrieval data/questions/test.json
-{'k': 1, 'success': 0.6206896551724138}                                     
-{'k': 2, 'success': 0.7758620689655172}                                                                                                                   
-{'k': 3, 'success': 0.8275862068965517}                                                                                                                   
-{'k': 4, 'success': 0.8448275862068966}                     
-{'k': 5, 'success': 0.8620689655172413}                                                                                                                   
-{'k': 6, 'success': 0.8793103448275862}                                                                                                                   
-{'k': 7, 'success': 0.8793103448275862}                                                                                                                   
-{'k': 8, 'success': 0.9137931034482759}                                                                                                                   
-{'k': 9, 'success': 0.9137931034482759}                                                                                                                   
-{'k': 10, 'success': 0.9137931034482759} 
+{'k': 1, 'success': 0.6551724137931034} 
+{'k': 2, 'success': 0.7931034482758621} 
+{'k': 3, 'success': 0.8103448275862069} 
+{'k': 4, 'success': 0.8275862068965517} 
+{'k': 5, 'success': 0.8620689655172413} 
+{'k': 6, 'success': 0.8793103448275862} 
+{'k': 7, 'success': 0.8793103448275862} 
+{'k': 8, 'success': 0.896551724137931}  
+{'k': 9, 'success': 0.896551724137931}  
+{'k': 10, 'success': 0.896551724137931}
 """
 
 

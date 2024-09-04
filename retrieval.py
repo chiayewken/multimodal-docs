@@ -301,7 +301,11 @@ class ColpaliRetriever(MultimodalRetriever):
 
 class HybridRetriever(MultimodalRetriever):
     # Use Reciprocal Rank Fusion (RRF) scores to combine multiple retrievers
-    models: List[MultimodalRetriever] = [BGEM3Retriever(), ColpaliRetriever()]
+    models: List[MultimodalRetriever] = [
+        BGEM3Retriever(),
+        ColpaliRetriever(),
+        BM25PageRetriever(),
+    ]
     k: int = 60  # Hyperparameter
 
     def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
