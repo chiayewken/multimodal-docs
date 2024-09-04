@@ -29,6 +29,7 @@ def check_question(
         f"Based on the document content and question, answer yes or no only: Is the question relevant to the {category}?",
         f"Based on the document content and question, answer yes or no only: Are the {category} necessary in order to answer the question?",
         f"Based on the document content and question, answer yes or no only: Is the question clear and answerable based on the {category}?",
+        f"Based on the document content and question, answer yes or no only: Is the question of reasonable difficulty and answer cannot be simply copied?",
     ]
 
     for instruction in checks:
@@ -117,7 +118,7 @@ def generate_questions(
                         Picture="figures or diagrams or charts",
                         Text="texts",
                     )
-                    instruction = f"Based on the target {mapping[label]} in this document, can you generate a challenging question? Output the question only."
+                    instruction = f"Based on the target {mapping[label]} in this document, can you generate a test question? Ensure that the question is challenging and the answer cannot be simply copied from the content. Output the question only."
                     inputs = [
                         instruction,
                         "Document context:",
@@ -155,7 +156,7 @@ def generate_questions(
 
 
 """
-p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json
+p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json --questions_per_doc 3
 """
 
 
