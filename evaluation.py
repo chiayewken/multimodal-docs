@@ -125,7 +125,7 @@ python evaluation.py test_retriever data/questions/test.json --retriever_name cl
 python evaluation.py test_retriever data/questions/test.json --retriever_name bge
 [03:34<00:00,  1.25it/s, score=0.646]
 python evaluation.py test_retriever data/questions/test.json --retriever_name hybrid
-[13:09<00:00, 13.62s/it, score=0.751]
+[19:07<00:00, 19.79s/it, score=0.763]
 
 # Generate answers and evaluate with multi-judge
 

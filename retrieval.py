@@ -305,6 +305,7 @@ class HybridRetriever(MultimodalRetriever):
         BGEM3Retriever(),
         ColpaliRetriever(),
         BM25PageRetriever(),
+        ClipRetriever(),
     ]
     k: int = 60  # Hyperparameter
 
