@@ -306,6 +306,16 @@ def test_questions(path: str, path_out="demo.pdf", num_sample: int = 30):
     save_multimodal_document(content, path_out)
 
 
+def test_retrieval(data_path: str):
+    data = MultimodalData.load(data_path)
+    for k in range(1, 100):
+        success = []
+        for sample in data.samples:
+            assert len(sample.evidence_pages) == 1
+            success.append(sample.evidence_pages[0] in sample.retrieved_pages[:k])
+        print(dict(k=k, success=sum(success) / len(success)))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -321,6 +331,18 @@ p analysis.py show_document data/train/2012.14143v1.json
 p analysis.py test_object_categories data/train/*.json
 p analysis.py test_document_lengths data/test/*.json
 p analysis.py test_questions data/questions/test.json
+
+p analysis.py test_retrieval data/questions/test.json
+{'k': 1, 'success': 0.5689655172413793} 
+{'k': 2, 'success': 0.7068965517241379} 
+{'k': 3, 'success': 0.7931034482758621} 
+{'k': 4, 'success': 0.8448275862068966} 
+{'k': 5, 'success': 0.8620689655172413} 
+{'k': 6, 'success': 0.9137931034482759} 
+{'k': 7, 'success': 0.9137931034482759}   
+{'k': 8, 'success': 0.9137931034482759}                                 
+{'k': 9, 'success': 0.9137931034482759}                                      
+{'k': 10, 'success': 0.9482758620689655}
 """
 
 

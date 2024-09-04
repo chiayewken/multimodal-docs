@@ -36,7 +36,9 @@ def test_retriever(data_path: str, retriever_name: str):
         rank = sorted_ids.index(sample.evidence_pages[0])
         scores.append(1 / (rank + 1))
         progress.set_postfix(score=sum(scores) / len(scores))
+        sample.retrieved_pages = sorted_ids
 
+    data.save(data_path)
     return sum(scores) / len(scores)
 
 
