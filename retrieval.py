@@ -1,25 +1,61 @@
 import hashlib
-from FlagEmbedding import BGEM3FlagModel
-
+import json
+import random
+import subprocess
+import sys
+from pathlib import Path
 from typing import Optional, List, Dict
 
+import numpy as np
 import torch
+from FlagEmbedding import BGEM3FlagModel
 from PIL import Image
+from colpali_engine.models.paligemma_colbert_architecture import ColPali
+from colpali_engine.trainer.retrieval_evaluator import CustomEvaluator
+from colpali_engine.utils.colpali_processing_utils import (
+    process_images,
+    process_queries,
+)
 from fire import Fire
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 from sentence_transformers.util import cos_sim
-from torch import nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from transformers import (
-    PaliGemmaPreTrainedModel,
-    PaliGemmaForConditionalGeneration,
     PaliGemmaProcessor,
     AutoModel,
     PreTrainedModel,
+    AutoProcessor,
 )
 
-from data_loading import MultimodalDocument
+from data_loading import MultimodalDocument, MultimodalData, MultimodalPage
+
+
+def run_shell_command(command: List[str]) -> None:
+    try:
+        process = subprocess.Popen(
+            command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+
+        while True:
+            output = process.stdout.readline()
+            if output == "" and process.poll() is not None:
+                break
+            if output:
+                print(output.strip())
+                sys.stdout.flush()
+
+        rc = process.poll()
+        if rc != 0:
+            print(f"Command failed with return code {rc}")
+            error_output = process.stderr.read()
+            print("Error output:", error_output)
+        else:
+            print("Command executed successfully.")
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
 
 
 class MultimodalRetriever(BaseModel, arbitrary_types_allowed=True):
@@ -34,15 +70,33 @@ class MultimodalRetriever(BaseModel, arbitrary_types_allowed=True):
         threshold = pages[:k][-1].score
         return [p.number for p in doc.pages if p.score >= threshold]
 
+    def finetune(self, data: MultimodalData, output_dir: str):
+        raise NotImplementedError
+
 
 class ClipRetriever(MultimodalRetriever):
     path: str = "jinaai/jina-clip-v1"  # Document-optimized version of CLIP
     client: Optional[PreTrainedModel] = None
+    cache: Dict[str, torch.Tensor] = {}
 
     def load(self):
         if self.client is None:
             self.client = AutoModel.from_pretrained(self.path, trust_remote_code=True)
             self.client = self.client.cuda()
+
+    def encode_page(self, page: MultimodalPage) -> torch.Tensor:
+        key = page.json()
+        if key not in self.cache:
+            embeds = self.client.encode_text([page.text])
+            objects = page.get_tables_and_figures()
+
+            if objects:
+                image_embeds = self.client.encode_image(
+                    [x.get_image() for x in objects]
+                )
+                embeds = np.concatenate([embeds, image_embeds], axis=0)
+            self.cache[key] = embeds
+        return self.cache[key]
 
     def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         self.load()
@@ -50,18 +104,9 @@ class ClipRetriever(MultimodalRetriever):
         query_embeds = self.client.encode_text([query])
 
         for page in doc.pages:
-            text_embeds = self.client.encode_text([page.text])
-            page.score = cos_sim(query_embeds, text_embeds).item()
-            objects = page.get_tables_and_figures()
-
-            if objects:
-                image_embeds = self.client.encode_image(
-                    [x.get_image() for x in objects]
-                )
-                image_scores = cos_sim(query_embeds, image_embeds)
-                for i, o in enumerate(objects):
-                    o.score = image_scores[:, i].item()
-                    page.score = max(page.score, o.score)
+            page_embeds = self.encode_page(page)
+            scores = cos_sim(query_embeds, page_embeds)
+            page.score = scores.max().item()
 
         return doc
 
@@ -89,12 +134,13 @@ class BM25PageRetriever(MultimodalRetriever):
 
 
 class BGEM3Retriever(MultimodalRetriever):
+    path: str = "BAAI/bge-m3"
     cache: Dict[str, dict] = {}
     client: Optional[BGEM3FlagModel] = None
 
     def load(self):
         if self.client is None:
-            self.client = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
+            self.client = BGEM3FlagModel(self.path, use_fp16=True)
 
     def embed_texts(self, texts: List[str]) -> dict:
         self.load()
@@ -121,72 +167,74 @@ class BGEM3Retriever(MultimodalRetriever):
 
         return doc
 
+    def finetune(self, data: MultimodalData, output_dir: str):
+        path = Path(output_dir, "data.jsonl")
+        path.parent.mkdir(exist_ok=True, parents=True)
+        random.seed(0)
+        doc_map = {}
 
-class ColPali(PaliGemmaPreTrainedModel):
-    def __init__(self, config):
-        super(ColPali, self).__init__(config=config)
-        self.model: PaliGemmaForConditionalGeneration = (
-            PaliGemmaForConditionalGeneration(config)
-        )
-        self.dim = 128
-        self.custom_text_proj = nn.Linear(
-            self.model.config.text_config.hidden_size, self.dim
-        )
-        self.main_input_name = "doc_input_ids"
-
-    def forward(self, *args, **kwargs):
-        """
-        Forward pass through Llama and the linear layer for dimensionality reduction
-
-        Args:
-        - input_ids (torch.LongTensor): The input tokens tensor.
-        - attention_mask (torch.LongTensor): The attention mask tensor.
-
-        Returns:
-        - torch.Tensor: Embeddings of shape (batch_size, num_tokens, dim)
-        """
-        outputs = self.model(*args, output_hidden_states=True, **kwargs)
-        last_hidden_states = outputs.hidden_states[
-            -1
-        ]  # (batch_size, sequence_length, hidden_size)
-        proj = self.custom_text_proj(last_hidden_states)
-        # normalize l2 norm
-        proj = proj / proj.norm(dim=-1, keepdim=True)
-        proj = proj * kwargs["attention_mask"].unsqueeze(-1)
-        return proj
-
-
-class CustomEvaluator:
-    def evaluate(self, qs, ps):
-        scores = self.evaluate_colbert(qs, ps)
-        assert scores.shape[0] == len(qs)
-        scores = scores.to(torch.float32).cpu().numpy()
-        return scores
-
-    @staticmethod
-    def evaluate_colbert(qs, ps, batch_size=128) -> torch.Tensor:
-        scores = []
-        for i in range(0, len(qs), batch_size):
-            scores_batch = []
-            qs_batch = torch.nn.utils.rnn.pad_sequence(
-                qs[i : i + batch_size], batch_first=True, padding_value=0
-            ).to("cuda")
-            for j in range(0, len(ps), batch_size):
-                ps_batch = torch.nn.utils.rnn.pad_sequence(
-                    ps[j : j + batch_size], batch_first=True, padding_value=0
-                ).to("cuda")
-                scores_batch.append(
-                    torch.einsum("bnd,csd->bcns", qs_batch, ps_batch)
-                    .max(dim=3)[0]
-                    .sum(dim=2)
+        with open(path, "w") as f:
+            for sample in tqdm(data.samples, desc=str(path)):
+                if sample.source not in doc_map:
+                    doc_map[sample.source] = MultimodalDocument.load(sample.source)
+                doc = doc_map[sample.source]
+                page_map = {p.number: p.text for p in doc.pages}
+                pool = set(j for i in sample.evidence_pages for j in [i - 1, i, i + 1])
+                info = dict(
+                    query=sample.question,
+                    pos=[page_map[i] for i in sample.evidence_pages],
+                    neg=random.sample(set(p.number for p in doc.pages) - pool, k=10),
                 )
-            scores_batch = torch.cat(scores_batch, dim=1).cpu()
-            scores.append(scores_batch)
-        scores = torch.cat(scores, dim=0)
-        return scores
+                print(json.dumps(info), file=f)
+
+        command = [
+            "torchrun",
+            "--nproc_per_node",
+            "1",
+            "-m",
+            "FlagEmbedding.BGE_M3.run",
+            "--output_dir",
+            output_dir,
+            "--model_name_or_path",
+            self.path,
+            "--train_data",
+            output_dir,
+            "--learning_rate",
+            "1e-5",
+            "--fp16",
+            "--num_train_epochs",
+            "5",
+            "--per_device_train_batch_size",
+            "32",
+            "--dataloader_drop_last",
+            "True",
+            "--normlized",
+            "True",
+            "--temperature",
+            "0.02",
+            "--query_max_len",
+            "64",
+            "--passage_max_len",
+            "256",
+            "--train_group_size",
+            "2",
+            "--negatives_cross_device",
+            "--logging_steps",
+            "10",
+            "--same_task_within_batch",
+            "True",
+            "--unified_finetuning",
+            "True",
+            "--use_self_distill",
+            "True",
+        ]
+
+        run_shell_command(command)
 
 
 class ColpaliRetriever(MultimodalRetriever):
+    path: str = "vidore/colpali-v1.2"
+    base: str = "vidore/colpaligemma-3b-pt-448-base"
     model: Optional[ColPali] = None
     processor: Optional[PaliGemmaProcessor] = None
     device: str = "cuda"
@@ -195,87 +243,55 @@ class ColpaliRetriever(MultimodalRetriever):
     def load(self):
         if self.model is None:
             self.model = ColPali.from_pretrained(
-                "google/paligemma-3b-mix-448", torch_dtype=torch.bfloat16
+                self.base, torch_dtype=torch.bfloat16, device_map=self.device
             )
-            self.model = self.model.to(self.device).eval()
-            self.model.load_adapter("vidore/colpali")
-            self.processor = PaliGemmaProcessor.from_pretrained("vidore/colpali")
+            self.model.load_adapter(self.path)
+            self.model = self.model.eval()
+            self.processor = AutoProcessor.from_pretrained(self.path)
+
+    def encode_document(self, doc: MultimodalDocument) -> List[torch.Tensor]:
+        hash_id = hashlib.md5(doc.json().encode()).hexdigest()
+        if hash_id not in self.cache:
+            images = [page.get_full_image() for page in doc.pages]
+            # noinspection PyTypeChecker
+            dataloader = DataLoader(
+                images,
+                batch_size=4,
+                shuffle=False,
+                collate_fn=lambda x: process_images(self.processor, x),
+            )
+            ds = []
+            for batch_doc in tqdm(dataloader, desc="Encoding document"):
+                with torch.no_grad():
+                    batch_doc = {k: v.to(self.device) for k, v in batch_doc.items()}
+                    embeddings_doc = self.model(**batch_doc)
+                ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
+            self.cache[hash_id] = ds
+
+        return self.cache[hash_id]
 
     @staticmethod
-    def process_images(processor, images, max_length: int = 50):
-        texts_doc = ["Describe the image."] * len(images)
-        images = [image.convert("RGB") for image in images]
+    def compute_scores(qs: List[torch.Tensor], ds: List[torch.Tensor]) -> List[float]:
+        evaluator = CustomEvaluator(is_multi_vector=True)
+        if evaluator.is_multi_vector:
+            scores = evaluator.evaluate_colbert(qs, ds)
+        else:
+            scores = evaluator.evaluate_biencoder(qs, ds)
 
-        batch_doc = processor(
-            text=texts_doc,
-            images=images,
-            return_tensors="pt",
-            padding="longest",
-            max_length=max_length + processor.image_seq_length,
-        )
-        return batch_doc
-
-    @staticmethod
-    def process_queries(processor, queries, mock_image, max_length: int = 50):
-        texts_query = []
-        for query in queries:
-            query = f"Question: {query}<unused0><unused0><unused0><unused0><unused0>"
-            texts_query.append(query)
-
-        batch_query = processor(
-            images=[mock_image.convert("RGB")] * len(texts_query),
-            # NOTE: the image is not used in batch_query but it is required for calling the processor
-            text=texts_query,
-            return_tensors="pt",
-            padding="longest",
-            max_length=max_length + processor.image_seq_length,
-        )
-        del batch_query["pixel_values"]
-
-        batch_query["input_ids"] = batch_query["input_ids"][
-            ..., processor.image_seq_length :
-        ]
-        batch_query["attention_mask"] = batch_query["attention_mask"][
-            ..., processor.image_seq_length :
-        ]
-        return batch_query
-
-    def load_document_images(self, images: List[Image.Image]):
-        hash_id = "".join([hashlib.md5(i.tobytes()).hexdigest() for i in images])
-        if hash_id in self.cache:
-            return self.cache[hash_id]
-
-        # noinspection PyTypeChecker
-        dataloader = DataLoader(
-            images,
-            batch_size=4,
-            shuffle=False,
-            collate_fn=lambda x: self.process_images(self.processor, x),
-        )
-
-        ds = []
-        for batch_doc in dataloader:
-            with torch.no_grad():
-                batch_doc = {k: v.to(self.model.device) for k, v in batch_doc.items()}
-                embeddings_doc = self.model(**batch_doc)
-            ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
-
-        self.cache[hash_id] = ds
-        return ds
+        assert scores.shape[0] == len(qs)
+        return scores.to(torch.float32).cpu().squeeze().tolist()
 
     def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         doc = doc.copy(deep=True)
         self.load()
-        images = [page.get_full_image() for page in doc.pages]
-        ds = self.load_document_images(images)
+        ds = self.encode_document(doc)
 
-        # run inference - queries
         # noinspection PyTypeChecker
         dataloader = DataLoader(
             [query],
-            batch_size=4,
+            batch_size=1,
             shuffle=False,
-            collate_fn=lambda x: self.process_queries(
+            collate_fn=lambda x: process_queries(
                 self.processor, x, Image.new("RGB", (448, 448), (255, 255, 255))
             ),
         )
@@ -283,15 +299,11 @@ class ColpaliRetriever(MultimodalRetriever):
         qs = []
         for batch_query in dataloader:
             with torch.no_grad():
-                batch_query = {
-                    k: v.to(self.model.device) for k, v in batch_query.items()
-                }
+                batch_query = {k: v.to(self.device) for k, v in batch_query.items()}
                 embeddings_query = self.model(**batch_query)
             qs.extend(list(torch.unbind(embeddings_query.to("cpu"))))
 
-        retriever_evaluator = CustomEvaluator()
-        scores = retriever_evaluator.evaluate(qs, ds).squeeze()
-        assert scores.ndim == 1
+        scores = self.compute_scores(qs, ds)
         assert len(scores) == len(doc.pages)
         for i, page in enumerate(doc.pages):
             page.score = float(scores[i])
@@ -301,12 +313,7 @@ class ColpaliRetriever(MultimodalRetriever):
 
 class HybridRetriever(MultimodalRetriever):
     # Use Reciprocal Rank Fusion (RRF) scores to combine multiple retrievers
-    models: List[MultimodalRetriever] = [
-        BGEM3Retriever(),
-        ColpaliRetriever(),
-        BM25PageRetriever(),
-        ClipRetriever(),
-    ]
+    models: List[MultimodalRetriever] = [BGEM3Retriever(), ColpaliRetriever()]
     k: int = 60  # Hyperparameter
 
     def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
@@ -338,6 +345,8 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return BGEM3Retriever(**kwargs)
     elif name == "hybrid":
         return HybridRetriever(**kwargs)
+    elif name == "bge_finetune":
+        return BGEM3Retriever(path="outputs/finetune/bge")
     raise KeyError(name)
 
 
@@ -358,6 +367,16 @@ def test_retriever(path: str = "data/test/NYSE_FBHS_2023.json", name: str = "cli
             print(output.get_page(i).dict(exclude={"image_string", "objects"}))
         print("#" * 80)
 
+
+def run_finetune(name: str, data_path: str, output_dir: str, **kwargs):
+    model = select_retriever(name, **kwargs)
+    data = MultimodalData.load(data_path)
+    model.finetune(data, output_dir)
+
+
+"""
+p retrieval.py run_finetune bge data/questions/train.json outputs/finetune/bge
+"""
 
 if __name__ == "__main__":
     Fire()

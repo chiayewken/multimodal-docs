@@ -19,14 +19,17 @@ def safe_divide(a: float, b: float) -> float:
     return a / b if b != 0 else 0
 
 
-def test_retriever(data_path: str, retriever_name: str):
+def test_retriever(data_path: str, retriever_name: str, path: str = "retrieve.json"):
     retriever = select_retriever(retriever_name)
     data = MultimodalData.load(data_path)
+    doc_map = {}
     scores = []
 
     progress = tqdm(data.samples, desc=retriever_name)
     for sample in progress:
-        doc = MultimodalDocument.load(sample.source)
+        if sample.source not in doc_map:
+            doc_map[sample.source] = MultimodalDocument.load(sample.source)
+        doc = doc_map[sample.source]
         output = retriever.run(sample.question, doc)
 
         # Calculate MRR score
@@ -38,7 +41,8 @@ def test_retriever(data_path: str, retriever_name: str):
         progress.set_postfix(score=sum(scores) / len(scores))
         sample.retrieved_pages = sorted_ids
 
-    data.save(data_path)
+    data.save(path)
+    print(Path(path).absolute())
     return sum(scores) / len(scores)
 
 
@@ -116,16 +120,18 @@ def run_multi_judge(
 """
 # Evaluate different retrieval methods
 
-python evaluation.py test_retriever data/questions/test.json --retriever_name bm25
-[01:49<00:00,  2.45it/s, score=0.547]
-python evaluation.py test_retriever data/questions/test.json --retriever_name colpali
-[29:59<00:00,  6.69s/it, score=0.716]
-python evaluation.py test_retriever data/questions/test.json --retriever_name clip
-[28:10<00:00,  6.28s/it, score=0.487]
-python evaluation.py test_retriever data/questions/test.json --retriever_name bge
-[03:34<00:00,  1.25it/s, score=0.646]
-python evaluation.py test_retriever data/questions/test.json --retriever_name hybrid
-[19:07<00:00, 19.79s/it, score=0.763]
+python evaluation.py test_retriever data/questions/train.json --retriever_name bm25
+[00:22<00:00, 25.11it/s, score=0.386]
+python evaluation.py test_retriever data/questions/train.json --retriever_name clip
+[05:51<00:00,  1.57it/s, score=0.443]
+python evaluation.py test_retriever data/questions/train.json --retriever_name bge
+[03:21<00:00,  2.75it/s, score=0.526]
+python evaluation.py test_retriever data/questions/train.json --retriever_name bge_finetune
+[03:44<00:00,  2.46it/s, score=0.636]
+python evaluation.py test_retriever data/questions/train.json --retriever_name colpali
+[14:10<00:00,  1.54s/it, score=0.625]
+python evaluation.py test_retriever data/questions/train.json --retriever_name hybrid
+[16:39<00:00,  1.81s/it, score=0.588]
 
 # Generate answers and evaluate with multi-judge
 
