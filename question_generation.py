@@ -19,7 +19,7 @@ from modeling import select_model, EvalModel
 
 def check_question(
     question: str,
-    target: List[Union[str, Image.Image]],
+    target: Union[str, Image.Image],
     context: str,
     category: str,
     model: EvalModel,
@@ -34,11 +34,11 @@ def check_question(
 
     for instruction in checks:
         inputs: List[Union[str, Image.Image]] = [
-            instruction,
-            f"Context: {context}",
+            f"Document context:\n\n{context}",
             f"{category.capitalize()}:",
             *target,
             f"Question to be checked: '{question}'",
+            f"Instruction: {instruction}",
         ]
 
         output = model.run(inputs)
@@ -59,21 +59,18 @@ def check_question(
 
 def prepare_target_and_context(
     page: MultimodalPage, doc: MultimodalDocument, category: str
-) -> Tuple[List[Union[str, Image.Image]], List[Union[str, Image.Image]]]:
-    if "text" in category.lower():
-        target = [page.text]
-    else:
-        target = [o.get_image() for o in page.objects if o.category == category]
-
+) -> Tuple[Union[str, Image.Image], str]:
     context = []
     for other in doc.pages:
         if abs(other.number - page.number) <= 1:
-            for o in other.get_tables_and_figures():
-                context.append(o.get_image())
             if other.text:
                 context.append(other.text)
 
-    return target, context
+    if "text" in category.lower():
+        return page.text, "\n\n".join(context)
+    else:
+        images = [o.get_image() for o in page.objects if o.category == category]
+        return random.choice(images), "\n\n".join(context)
 
 
 def generate_questions(
@@ -82,17 +79,19 @@ def generate_questions(
     questions_per_doc: int = 15,
     object_categories: List[str] = ("Picture", "Table", "Text"),
     model_names: List[str] = (
-        "gpt-4o-2024-05-13",
+        "gpt-4o-2024-08-06",
         "claude-3-5-sonnet-20240620",
         "gemini-1.5-pro-001",
     ),
     random_seed: int = 0,
+    do_verify: bool = True,
 ):
     print(locals())
     random.seed(random_seed)
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
     valid_counts = []
     category_counts = []
+    model_map = {m: select_model(m) for m in model_names}
 
     with open(path_out, "w") as f:
         for doc_path in tqdm(random.sample(paths, k=len(paths)), desc=path_out):
@@ -108,11 +107,11 @@ def generate_questions(
                     if len(samples) >= questions_per_doc // len(object_categories):
                         break
                     target, context = prepare_target_and_context(p, doc, label)
-                    if target == [] or context == []:
+                    if not context:
                         continue
 
                     name = random.choice(model_names)
-                    model = select_model(name)
+                    model = model_map[name]
                     mapping = dict(
                         Table="tables",
                         Picture="figures or diagrams or charts",
@@ -120,16 +119,15 @@ def generate_questions(
                     )
                     instruction = f"Based on the target {mapping[label]} in this document, can you generate a test question? Ensure that the question is challenging and the answer cannot be simply copied from the content. Output the question only."
                     inputs = [
-                        instruction,
-                        "Document context:",
-                        *context,
+                        f"Document context:\n\n{context}",
                         f"Target {mapping[label]}:",
-                        *target,
+                        target,
+                        f"Instruction: {instruction}",
                     ]
 
                     question: str = model.run(inputs).strip()
                     print(dict(doc=p.source, page=p.number, question=question))
-                    is_valid = check_question(
+                    is_valid = not do_verify or check_question(
                         question, target, p.text, mapping[label], model
                     )
 
@@ -156,6 +154,7 @@ def generate_questions(
 
 
 """
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train.json --questions_per_doc 30 --do_verify False
 p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json --questions_per_doc 3
 """
 

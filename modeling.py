@@ -6,6 +6,7 @@ from typing import Optional, List, Union, Any
 
 import google.generativeai as genai
 import requests
+import tiktoken
 import torch
 from PIL import Image
 from anthropic import Anthropic
@@ -568,6 +569,8 @@ class IdeficsModel(EvalModel):
 class CloudModel(EvalModel):
     # Queries the server on google cloud for completions, which should work in any country
     url: str = "http://35.208.161.228:8000/completions"
+    tokenizer: Optional[tiktoken.Encoding] = None
+    costs: List[float] = []
 
     def get_model_key(self) -> str:
         if self.engine.startswith("gpt"):
@@ -580,6 +583,21 @@ class CloudModel(EvalModel):
             return get_environment_key(".env", "REKA_KEY")
         else:
             raise ValueError(f"Unknown engine cannot find key: {self.engine}")
+
+    def count_tokens(self, text: str) -> int:
+        if self.tokenizer is None:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        return len(self.tokenizer.encode(text))
+
+    def count_cost(self, data: List[Union[str, Image.Image]], is_input: bool) -> float:
+        # Estimate based on OpenAI gpt-4o-2024-08-06 and 1024x1024 images
+        input_cost, output_cost, image_cost = (2.5 / 1e6, 10 / 1e6, 0.001913)
+        texts = [x for x in data if isinstance(x, str)]
+        images = [x for x in data if isinstance(x, Image.Image)]
+        num_tokens = self.count_tokens(" ".join(texts))
+        cost = num_tokens * (input_cost if is_input else output_cost)
+        cost += len(images) * image_cost
+        return cost
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         contents = [
@@ -612,6 +630,11 @@ class CloudModel(EvalModel):
                 print("CloudModel request failed:", e)
                 time.sleep(1)
 
+        cost = self.count_cost(inputs, is_input=True) + self.count_cost(
+            [output], is_input=False
+        )
+        self.costs.append(cost)
+        print(dict(cost=cost, average=sum(self.costs) / len(self.costs)))
         return output
 
     def run_many(self, inputs: List[Union[str, Image.Image]], num: int) -> List[str]:
