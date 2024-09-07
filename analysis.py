@@ -140,6 +140,23 @@ def read_index(path: str = "data/nyse.txt", seed: int = 0):
     print(df.sample(100, random_state=seed))
 
 
+def read_brands(path: str = "data/brands.txt", seed: int = 0):
+    # https://www.manualslib.com/brand/
+    records = []
+    random.seed(0)
+
+    with open(path) as f:
+        for line in f:
+            items = [x.strip() for x in line.strip().split(",")]
+            records.append(dict(name=items[0], categories=items[1:]))
+            random.shuffle(records[-1]["categories"])
+
+    df = pd.DataFrame(records)
+    print(df.shape)
+    pd.set_option("display.max_rows", None)
+    print(df.sample(n=20, random_state=seed))
+
+
 def test_read_pdf_new(path: str = "data/reports/NYSE_HI_2023.pdf"):
     doc = MultimodalDocument.load_from_pdf(path)
     path_out = Path("renders", Path(path).name)
