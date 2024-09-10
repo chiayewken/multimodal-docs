@@ -463,6 +463,8 @@ class OneVisionModel(EvalModel):
         self.load()
         warnings.filterwarnings("ignore")
         images = [resize_image(x, 384) for x in inputs if isinstance(x, Image.Image)]
+        if not images:
+            images = [Image.new("RGB", (384, 384), (255, 255, 255))]
         image_tensor = process_images(images, self.processor, self.model.config)
         image_list = [x.to(dtype=torch.float16, device="cuda") for x in image_tensor]
 
@@ -555,9 +557,9 @@ class IdeficsModel(EvalModel):
         prompt = self.processor.apply_chat_template(
             messages, add_generation_prompt=True
         )
-        return self.processor(text=prompt, images=images, return_tensors="pt").to(
-            self.device
-        )
+        return self.processor(
+            text=prompt, images=images or None, return_tensors="pt"
+        ).to(self.device)
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         self.load()
