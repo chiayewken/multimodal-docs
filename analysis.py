@@ -451,6 +451,32 @@ def test_judge_agreement(*paths: str):
         print(dict(path=p, krippendorff_alpha=round(alpha, 3)))
 
 
+def test_judge_self_bias(*paths: str):
+    for p in paths:
+        data = MultimodalData.load(p)
+        judges = set(j.name for s in data.samples for j in s.judgements)
+        if data.samples[0].generator not in judges:
+            print(dict(skip=p))
+            continue
+
+        scores_self = []
+        scores_other = []
+        for sample in data.samples:
+            for judge in sample.judgements:
+                if judge.name == sample.annotator:
+                    scores_self.append(judge.score)
+                else:
+                    scores_other.append(judge.score)
+
+        print(
+            dict(
+                path=p,
+                self=round(sum(scores_self) / len(scores_self), 3),
+                other=round(sum(scores_other) / len(scores_other), 3),
+            )
+        )
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -488,6 +514,11 @@ p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
 {'path': 'outputs/idefics/colpali/top_k=5.json', 'krippendorff_alpha': 0.558}
 {'path': 'outputs/intern/colpali/top_k=5.json', 'krippendorff_alpha': 0.689}
 {'path': 'outputs/onevision/colpali/top_k=5.json', 'krippendorff_alpha': 0.674}
+
+p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
+{'path': 'outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json', 'self': 4.556, 'other': 4.517}
+{'path': 'outputs/gemini-1.5-pro-001/colpali/top_k=5.json', 'self': 4.311, 'other': 4.417}
+{'path': 'outputs/gpt-4o-2024-08-06/colpali/top_k=5.json', 'self': 4.556, 'other': 4.528}
 """
 
 
