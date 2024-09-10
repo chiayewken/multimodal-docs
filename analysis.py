@@ -352,7 +352,7 @@ def plot_data_chart(path_out: str = "chart.png"):
         ],
         "Academic<br>Paper": [
             "mathematics",
-            "statistics",
+            "biology",
             "physics",
             "computer",
             "computer",
@@ -360,7 +360,7 @@ def plot_data_chart(path_out: str = "chart.png"):
             "finance",
             "physics",
             "statistics",
-            "computer",
+            "engineering",
         ],
         "Technical<br>Manuals": [
             "phone",
