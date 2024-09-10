@@ -38,6 +38,7 @@ plotly==5.24.0
 kaleido==0.2.1
 fasttext==0.9.3
 langdetect==1.0.9
+krippendorff==0.7.0
 # GPU-only
 lmdeploy[all]==0.6.0a0
 xformers==0.0.24

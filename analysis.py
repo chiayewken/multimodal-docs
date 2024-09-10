@@ -6,6 +6,8 @@ from pathlib import Path
 
 # noinspection PyPackageRequirements
 import fitz  # imports the pymupdf library
+import krippendorff
+import numpy as np
 import pandas as pd
 from fire import Fire
 from reportlab.platypus import (
@@ -432,6 +434,23 @@ def test_languages(*paths: str, model_name: str = "langdetect"):
         )
 
 
+def test_judge_agreement(*paths: str):
+    for p in paths:
+        data = MultimodalData.load(p)
+        num_judges = len(data.samples[0].judgements)
+        scores = [[] for _ in range(num_judges)]
+
+        for sample in data.samples:
+            assert len(sample.judgements) == num_judges
+            for i, judge in enumerate(sample.judgements):
+                scores[i].append(judge.score)
+
+        alpha = krippendorff.alpha(
+            reliability_data=np.array(scores), level_of_measurement="ordinal"
+        )
+        print(dict(path=p, krippendorff_alpha=round(alpha, 3)))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -461,6 +480,14 @@ p analysis.py test_retrieval data/questions/test.json
 {'k': 10, 'success': 0.896551724137931}  
 
 p analysis.py test_languages data/test/*.json
+
+p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
+{'path': 'outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json', 'krippendorff_alpha': 0.634}
+{'path': 'outputs/gemini-1.5-pro-001/colpali/top_k=5.json', 'krippendorff_alpha': 0.523}
+{'path': 'outputs/gpt-4o-2024-08-06/colpali/top_k=5.json', 'krippendorff_alpha': 0.594}
+{'path': 'outputs/idefics/colpali/top_k=5.json', 'krippendorff_alpha': 0.558}
+{'path': 'outputs/intern/colpali/top_k=5.json', 'krippendorff_alpha': 0.689}
+{'path': 'outputs/onevision/colpali/top_k=5.json', 'krippendorff_alpha': 0.674}
 """
 
 
