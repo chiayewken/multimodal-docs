@@ -1,16 +1,12 @@
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Union
 
+from PIL import Image
 from fire import Fire
 from tqdm import tqdm
 
-from data_loading import (
-    MultimodalData,
-    MultimodalObject,
-    MultimodalDocument,
-    Judgement,
-)
+from data_loading import MultimodalData, MultimodalDocument, Judgement
 from modeling import select_model
 from retrieval import select_retriever
 
@@ -54,7 +50,6 @@ def generate_answers(
     top_k: int = 5,
 ):
     generator = select_model(generator_name)
-    retriever = select_retriever(retriever_name, top_k=top_k)
     data = MultimodalData.load(data_path)
     path_out = Path(output_dir, generator_name, retriever_name, f"{top_k=}.json")
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
@@ -62,12 +57,21 @@ def generate_answers(
     with open(path_out, "w") as f:
         for sample in tqdm(data.samples, desc=str(path_out)):
             doc = MultimodalDocument.load(sample.source)
-            query = MultimodalObject(text=sample.question)
-            pages = retriever.run(query, doc).objects
-            sample.retrieved_pages = [p.page for p in pages]
+            assert sample.retrieved_pages
+            sample.retrieved_pages = sorted(sample.retrieved_pages[:top_k])
 
-            prompt = f"Answer the following question in 200 words or less: {query.text}"
-            inputs = [prompt] + [p.get_image() or p.text for p in pages]
+            context = []
+            for p in doc.pages:
+                if p.number in sample.retrieved_pages:
+                    if p.text:
+                        context.append(p.text)
+                    context.extend(o.get_image() for o in p.get_tables_and_figures())
+
+            inputs = [
+                "Context:",
+                *context,
+                f"Answer the following question in 200 words or less: {sample.question}",
+            ]
             sample.pred = generator.run(inputs)
             sample.generator = generator_name
             print(sample.model_dump_json(indent=2))
@@ -75,38 +79,68 @@ def generate_answers(
 
 
 def extract_score(text) -> int:
-    for match in re.findall(r"\*\*(\d+)\*\*", text):
-        return int(match)
+    matches = re.findall(r"\b(\d+)\b", text)
+    if matches:
+        return int(matches[-1])
     return -1
 
 
+def prepare_document_context(
+    page_number: int, doc: MultimodalDocument
+) -> List[Union[str, Image.Image]]:
+    context = []
+    for other in doc.pages:
+        if abs(other.number - page_number) <= 1:
+            if other.number == page_number:
+                for o in other.get_tables_and_figures():
+                    context.append(o.get_image())
+            if other.text:
+                context.append(other.text)
+
+    return context
+
+
 def run_multi_judge(
-    data_path: str, judge_names: List[str] = ("openai", "claude", "gemini")
+    data_path: str,
+    judge_names: List[str] = (
+        "gpt-4o-2024-08-06",
+        "claude-3-5-sonnet-20240620",
+        "gemini-1.5-pro-001",
+    ),
 ):
-    template = "Score the following answer to the question based on the document content on a continuous scale from 0 to 100."
-    template += '\nA score of zero means "irrelevant or missing answer that is not helpful at all" and score of one hundred means "perfect answer, well-grounded in the document with explanation that correctly answers the question".'
-    template += "\nPlease provide a concise explanation of 1-3 sentences and then score from 0 to 100 that reflects the quality of the answer, not the quality of the question."
-    template += "\nPlease follow this example output format: The answer correct identifies the weighted average and explains the trend, but there is a factual error. Thus, the score is **75**."
-    template += "\n\nQuestion: {question}"
-    template += "\n\nAnswer: {answer}"
-    template += "\n\nDocument:"
+    parts = [
+        "Instruction: You will be given one response to a question based on the multimodal document containing texts, figures, or tables. Your task is to rate the response on one metric. Please make sure you read and understand these instructions carefully. Please keep this document open while reviewing, and refer to it as needed.",
+        "Evaluation Criteria: Correctness (1-5) refers to the degree to which the response accurately, comprehensively, and appropriately addresses the question based on the information provided in the document.",
+        "5 - Fully Correct: The response is completely accurate, comprehensively addresses the question, fully integrates relevant information from all parts of the document, and provides a coherent answer.",
+        "4 - Mostly Correct: The response is largely accurate with only minor errors or omissions, addresses most main points, and integrates information well from the document.",
+        "3 - Partially Correct: The response contains a mix of accurate and inaccurate information, addresses some key points but misses others, and partially integrates information from the document.",
+        "2 - Mostly Incorrect: The response has multiple inaccuracies, addresses only a small portion correctly, and shows minimal integration of information from the document.",
+        "1 - Completely Incorrect: The response contains significant errors, is irrelevant, or fails to address the question based on the document.",
+        "Evaluation Steps:",
+        "- Thoroughly review the multimodal document (text, figures, tables) and the question.",
+        "- Carefully read the response, comparing it to the information in the document.",
+        "- Assess the response's accuracy, comprehensiveness, and relevance to the question.",
+        "- Assign a correctness score from 1 to 5 based on the Evaluation Criteria provided.",
+        "Question: {question}",
+        "Response: {answer}",
+        "Evaluation Form (score only without explanation)\nCorrectness:",
+    ]
+    template = "\n".join(parts)
 
     data = MultimodalData.load(data_path)
-    progress = tqdm(data.samples, desc=f"{data_path} ({judge_names})")
+    progress = tqdm(data.samples, desc=data_path)
     scores = []
 
     for sample in progress:
         judgements = []
         for name in judge_names:
             judge = select_model(name)
-            prompt = template.format(question=sample.question, answer=sample.pred)
             doc = MultimodalDocument.load(sample.source)
-            page_ids = sample.evidence_pages + sample.retrieved_pages
-            pages = sorted(
-                [p for p in doc.objects if p.page in page_ids], key=lambda p: p.page
-            )
+            assert len(sample.evidence_pages) == 1
+            context = prepare_document_context(sample.evidence_pages[0], doc)
+            instruction = template.format(question=sample.question, answer=sample.pred)
+            inputs = ["Document:", *context, instruction]
 
-            inputs = [prompt] + [p.get_image() or p.text for p in pages] + ["\nScore:"]
             outputs = judge.run(inputs)
             scores.append(extract_score(outputs))
             judgements.append(Judgement(name=name, content=outputs, score=scores[-1]))
@@ -133,26 +167,30 @@ python evaluation.py test_retriever data/questions/train.json --retriever_name c
 python evaluation.py test_retriever data/questions/train.json --retriever_name hybrid
 [16:39<00:00,  1.81s/it, score=0.588]
 
-# Generate answers and evaluate with multi-judge
+# Retrieve first and generate answers and evaluate with multi-judge
 
-p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name bm25
-p evaluation.py generate_answers data/questions.json --generator_name openai --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name gemma --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name idefics --retriever_name bm25
-p evaluation.py generate_answers data/questions.json --generator_name claude --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name gemini --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name openai_mini --retriever_name colpali
-p evaluation.py generate_answers data/questions.json --generator_name gemini_flash --retriever_name colpali
+python evaluation.py test_retriever data/questions/test.json --retriever_name colpali --path outputs/retrieve/test/colpali.json
+90/90 [16:28<00:00, 10.98s/it, score=0.674]
 
-p evaluation.py run_multi_judge "outputs/openai/colpali/top_k=5.json"
-[43:33<00:00, 26.14s/it, score=78.5]
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-2024-08-06
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name claude-3-5-sonnet-20240620
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gemini-1.5-pro-001
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name intern
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name idefics
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name onevision
 
-p evaluation.py run_multi_judge "outputs/claude/colpali/top_k=5.json"
-[43:33<00:00, 26.14s/it, score=79.5]
-
-p evaluation.py run_multi_judge "outputs/gemini/colpali/top_k=5.json"
-[43:24<00:00, 26.05s/it, score=75.3]
+p evaluation.py run_multi_judge outputs/gpt-4o-2024-08-06/colpali/top_k=5.json
+[20:27<00:00, 13.64s/it, score=4.54]
+p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json
+[20:54<00:00, 13.94s/it, score=4.53]
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-001/colpali/top_k=5.json
+[21:08<00:00, 14.09s/it, score=4.38]
+p evaluation.py run_multi_judge outputs/intern/colpali/top_k=5.json
+[14:40<00:00,  9.78s/it, score=3.87]
+p evaluation.py run_multi_judge outputs/idefics/colpali/top_k=5.json
+[14:29<00:00,  9.67s/it, score=3.09]
+p evaluation.py run_multi_judge outputs/onevision/colpali/top_k=5.json
+[14:32<00:00,  9.69s/it, score=3.8]
 
 """
 
