@@ -24,34 +24,38 @@ def check_question(
     category: str,
     model: EvalModel,
 ) -> bool:
-    checks = [
-        f"Based on the document content and question, answer yes or no only: Does the content contain any {category}?",
-        f"Based on the document content and question, answer yes or no only: Is the question relevant to the {category}?",
-        f"Based on the document content and question, answer yes or no only: Are the {category} necessary in order to answer the question?",
-        f"Based on the document content and question, answer yes or no only: Is the question clear and answerable based on the {category}?",
-        f"Based on the document content and question, answer yes or no only: Is the question of reasonable difficulty and answer cannot be simply copied?",
+    parts = [
+        f"Based on the document content and question, answer yes or no only to the following questions:",
+        f"1.Does the content contain any {category}?",
+        f"2. Is the question relevant to the {category}?",
+        f"3. Are the {category} necessary in order to answer the question?",
+        f"4. Is the question clear and answerable based on the {category}?",
+        f"5. Is the question of reasonable difficulty and answer cannot be simply copied?",
+        f"Give the response in the following example format: 1. yes/no 2. yes/no 3. yes/no 4. yes/no 5. yes/no",
     ]
 
+    checks = ["\n".join(parts)]  # Combine multiple checks into one prompt / response
     for instruction in checks:
         inputs: List[Union[str, Image.Image]] = [
             f"Document context:\n\n{context}",
             f"{category.capitalize()}:",
-            *target,
+            target,
             f"Question to be checked: '{question}'",
             f"Instruction: {instruction}",
         ]
 
         output = model.run(inputs)
+        labels = [word for word in output.lower().split() if word in ["yes", "no"]]
         info = dict(
             question=question,
             category=category,
             instruction=instruction,
             output=output,
+            valid=all(x == "yes" for x in labels),
         )
 
         print(json.dumps(info, indent=2))
-        pred = "yes" if "yes" in output.lower() else "no"
-        if pred == "no":
+        if not all(x == "yes" for x in labels):
             return False
 
     return True
@@ -92,6 +96,7 @@ def generate_questions(
     valid_counts = []
     category_counts = []
     model_map = {m: select_model(m) for m in model_names}
+    language_checker = select_model("langdetect")
 
     with open(path_out, "w") as f:
         for doc_path in tqdm(random.sample(paths, k=len(paths)), desc=path_out):
@@ -106,6 +111,8 @@ def generate_questions(
                         continue
                     if len(samples) >= questions_per_doc // len(object_categories):
                         break
+                    if language_checker.run([p.text]).strip() != "en":
+                        continue
                     target, context = prepare_target_and_context(p, doc, label)
                     if not context:
                         continue
