@@ -1,6 +1,7 @@
 import io
 import random
 import re
+from collections import Counter
 from pathlib import Path
 
 # noinspection PyPackageRequirements
@@ -408,6 +409,29 @@ def plot_data_chart(path_out: str = "chart.png"):
     fig.write_image(path_out, scale=4)
 
 
+def test_languages(*paths: str, model_name: str = "langdetect"):
+    model = select_model(model_name)
+    for p in paths:
+        doc = MultimodalDocument.load(p)
+        texts = [p.text for p in doc.pages]
+        languages = [model.run([t]) for t in texts]
+        old_objects = [o for p in doc.pages for o in p.get_tables_and_figures()]
+        new_objects = [
+            o
+            for i, p in enumerate(doc.pages)
+            if languages[i] == "en"
+            for o in p.get_tables_and_figures()
+        ]
+        print(
+            dict(
+                p=p,
+                pages=len(doc.pages),
+                objects_keep=round(len(new_objects) / len(old_objects), 2),
+                languages=Counter(languages),
+            )
+        )
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -435,6 +459,8 @@ p analysis.py test_retrieval data/questions/test.json
 {'k': 8, 'success': 0.8793103448275862}                                                                                                                   
 {'k': 9, 'success': 0.8793103448275862}                                                                                                                   
 {'k': 10, 'success': 0.896551724137931}  
+
+p analysis.py test_languages data/test/*.json
 """
 
 

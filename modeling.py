@@ -4,7 +4,9 @@ import time
 import warnings
 from typing import Optional, List, Union, Any
 
+import fasttext
 import google.generativeai as genai
+import langdetect
 import requests
 import tiktoken
 import torch
@@ -12,6 +14,8 @@ from PIL import Image
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from fire import Fire
+from huggingface_hub import hf_hub_download
+from langdetect import LangDetectException
 from openai import OpenAI
 from pydantic import BaseModel
 from reka.client import Reka
@@ -302,6 +306,7 @@ class InternModel(EvalModel):
     def load(self):
         if self.client is None:
             backend_config = lmdeploy.TurbomindEngineConfig(model_format="awq")
+            # noinspection PyTestUnpassedFixture
             self.client = lmdeploy.pipeline(self.engine, backend_config=backend_config)
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
@@ -672,6 +677,44 @@ class CloudModel(EvalModel):
         return outputs
 
 
+class LangDetectModel(EvalModel):
+    engine: str = ""
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        text = " ".join([x for x in inputs if isinstance(x, str)])
+        try:
+            return langdetect.detect(text)
+        except LangDetectException as e:
+            if "No features in text." not in str(e):
+                print(e)
+            return ""
+
+
+class FastTextModel(EvalModel):
+    # noinspection PyProtectedMember
+    model: Optional[fasttext.FastText._FastText] = None
+    engine: str = "facebook/fasttext-language-identification"
+
+    def load(self):
+        if self.model is None:
+            model_path = hf_hub_download(repo_id=self.engine, filename="model.bin")
+            self.model = fasttext.load_model(model_path)
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        texts = [
+            x for i in inputs if isinstance(i, str) for x in i.split("\n") if x.strip()
+        ]
+        if not texts:
+            return ""
+
+        outputs, _ = self.model.predict(texts)
+        labels = [o[0].replace("__label__", "") for o in outputs]
+        labels = [dict(eng_Latn="en").get(x, x) for x in labels]
+        assert len(labels) == len(texts)
+        return max(set(labels), key=labels.count)
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
@@ -687,6 +730,8 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         onevision=OneVisionModel,
         cogvlm=CogVLMModel,
         owl=OwlModel,
+        fasttext=FastTextModel,
+        langdetect=LangDetectModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -761,6 +806,8 @@ p modeling.py test_model --model_name claude_haiku
 p modeling.py test_model --model_name intern
 p modeling.py test_model --model_name gemma
 p modeling.py test_model --model_name onevision
+p modeling.py test_model --model_name fasttext
+p modeling.py test_model --model_name langdetect
 
 # Single-image
 python modeling.py test_model --model_name gpt-4o-2024-05-13
