@@ -333,6 +333,81 @@ def test_retrieval(data_path: str):
         print(dict(k=k, success=sum(success) / len(success)))
 
 
+def plot_data_chart(path_out: str = "chart.png"):
+    import plotly.graph_objects as go
+
+    # New data
+    categories = {
+        "Financial<br>Report": [
+            "healthcare",
+            "materials",
+            "consumer",
+            "financial",
+            "industrial",
+            "services",
+            "consumer",
+            "materials",
+            "technology",
+            "technology",
+        ],
+        "Academic<br>Paper": [
+            "mathematics",
+            "statistics",
+            "physics",
+            "computer",
+            "computer",
+            "physics",
+            "finance",
+            "physics",
+            "statistics",
+            "computer",
+        ],
+        "Technical<br>Manuals": [
+            "phone",
+            "stove",
+            "router",
+            "blender",
+            "vacuum",
+            "breaker",
+            "laptop",
+            "fridge",
+            "car",
+            "phone",
+        ],
+    }
+
+    values = [len(lst) for lst in categories.values()]
+    labels = list(categories.keys())
+    parents = [""] * len(categories)
+    for key, lst in categories.items():
+        unique = sorted(set(lst))
+        values.extend([lst.count(u) for u in unique])
+        categories[key] = unique
+        labels.extend(unique)
+        parents.extend([key] * len(unique))
+
+    fig = go.Figure(
+        go.Sunburst(
+            labels=labels,
+            parents=parents,
+            values=values,
+            branchvalues="total",
+            insidetextorientation="radial",  # This makes labels follow the slice angle
+            textfont=dict(size=10, color="white"),  # Set font color to white
+        )
+    )
+
+    # Update layout for better visualization and fixed aspect ratio
+    fig.update_layout(
+        margin=dict(t=0, l=0, r=0, b=0),
+        width=400,  # Set the width of the figure
+        height=400,  # Set the height of the figure
+    )
+
+    fig.show()
+    fig.write_image(path_out, scale=4)
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
