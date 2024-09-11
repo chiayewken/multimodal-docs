@@ -529,19 +529,20 @@ def test_judge_self_bias(*paths: str):
         )
 
 
-def test_results(*paths: str):
-    def filter_fn(
-        samples: List[MultimodalSample], category: str
-    ) -> List[MultimodalSample]:
-        if category == "text":
-            return [s for s in samples if "text" in s.category]
-        elif category == "figure":
-            return [s for s in samples if "figure" in s.category]
-        elif category == "table":
-            return [s for s in samples if "table" in s.category]
-        else:
-            return samples
+def content_filter_fn(
+    samples: List[MultimodalSample], category: str
+) -> List[MultimodalSample]:
+    if category == "text":
+        return [s for s in samples if "text" in s.category]
+    elif category == "figure":
+        return [s for s in samples if "figure" in s.category]
+    elif category == "table":
+        return [s for s in samples if "table" in s.category]
+    else:
+        return samples
 
+
+def test_results(*paths: str):
     records = []
     for p in paths:
         info = dict(path=p)
@@ -549,13 +550,35 @@ def test_results(*paths: str):
             data = MultimodalData.load(p)
             scores = [
                 judge.score
-                for s in filter_fn(data.samples, label)
+                for s in content_filter_fn(data.samples, label)
                 for judge in s.judgements
             ]
             info[label] = sum(scores) / len(scores)
         records.append(info)
 
     print(pd.DataFrame(records).round(2))
+
+
+def test_retriever_results(*paths: str):
+    records = []
+
+    for p in paths:
+        info = dict(path=p)
+        for label in ["text", "figure", "table", "all"]:
+            data = MultimodalData.load(p)
+            scores = []
+
+            for sample in content_filter_fn(data.samples, label):
+                # Calculate MRR score
+                sorted_ids = sample.retrieved_pages
+                assert len(sample.evidence_pages) == 1
+                rank = sorted_ids.index(sample.evidence_pages[0])
+                scores.append(1 / (rank + 1))
+            info[label] = sum(scores) / len(scores) * 100
+
+        records.append(info)
+
+    print(pd.DataFrame(records).round(1))
 
 
 """
@@ -604,6 +627,8 @@ p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 p analysis.py plot_data_chart
 p analysis.py plot_multimodal_chart data/test/*.json
 p analysis.py test_results outputs/*/colpali/top_k=5.json
+bash scripts/eval_retrievers.sh
+p analysis.py test_retriever_results outputs/retrieve/test/*.json
 """
 
 
