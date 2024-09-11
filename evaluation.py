@@ -178,6 +178,7 @@ p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name intern
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name idefics
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name onevision
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-mini-2024-07-18
 
 p evaluation.py run_multi_judge outputs/gpt-4o-2024-08-06/colpali/top_k=5.json
 [20:27<00:00, 13.64s/it, score=4.54]
@@ -191,6 +192,8 @@ p evaluation.py run_multi_judge outputs/idefics/colpali/top_k=5.json
 [14:29<00:00,  9.67s/it, score=3.09]
 p evaluation.py run_multi_judge outputs/onevision/colpali/top_k=5.json
 [14:32<00:00,  9.69s/it, score=3.8]
+p evaluation.py run_multi_judge outputs/gpt-4o-mini-2024-07-18/colpali/top_k=5.json
+[15:06<00:00, 10.07s/it, score=4.2]
 
 """
 
