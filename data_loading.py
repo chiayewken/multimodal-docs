@@ -221,6 +221,15 @@ class MultimodalDocument(BaseModel):
             for o in self.pages:
                 print(o.model_dump_json(), file=f)
 
+    def get_domain(self) -> str:
+        filename = Path(self.pages[0].source).name
+        if filename.startswith("NYSE"):
+            return "Financial<br>Report"
+        elif filename[:4].isdigit() and filename[4] == "." and filename[5].isdigit():
+            return "Academic<br>Paper"
+        else:
+            return "Technical<br>Manuals"
+
 
 class Judgement(BaseModel):
     name: str

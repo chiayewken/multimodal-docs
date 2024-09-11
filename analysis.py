@@ -3,6 +3,7 @@ import random
 import re
 from collections import Counter
 from pathlib import Path
+from typing import List
 
 # noinspection PyPackageRequirements
 import fitz  # imports the pymupdf library
@@ -341,17 +342,17 @@ def plot_data_chart(path_out: str = "chart.png"):
 
     # New data
     categories = {
-        "Financial<br>Report": [
-            "healthcare",
-            "materials",
-            "consumer",
-            "financial",
-            "industrial",
-            "services",
-            "consumer",
-            "materials",
-            "technology",
-            "technology",
+        "Technical<br>Manuals": [
+            "phone",
+            "stove",
+            "router",
+            "blender",
+            "vacuum",
+            "breaker",
+            "laptop",
+            "fridge",
+            "car",
+            "phone",
         ],
         "Academic<br>Paper": [
             "mathematics",
@@ -365,17 +366,17 @@ def plot_data_chart(path_out: str = "chart.png"):
             "statistics",
             "engineering",
         ],
-        "Technical<br>Manuals": [
-            "phone",
-            "stove",
-            "router",
-            "blender",
-            "vacuum",
-            "breaker",
-            "laptop",
-            "fridge",
-            "car",
-            "phone",
+        "Financial<br>Report": [
+            "healthcare",
+            "materials",
+            "consumer",
+            "financial",
+            "industrial",
+            "services",
+            "consumer",
+            "materials",
+            "technology",
+            "technology",
         ],
     }
 
@@ -387,6 +388,57 @@ def plot_data_chart(path_out: str = "chart.png"):
         values.extend([lst.count(u) for u in unique])
         categories[key] = unique
         labels.extend(unique)
+        parents.extend([key] * len(unique))
+
+    fig = go.Figure(
+        go.Sunburst(
+            labels=labels,
+            parents=parents,
+            values=values,
+            branchvalues="total",
+            insidetextorientation="radial",  # This makes labels follow the slice angle
+            textfont=dict(size=10, color="white"),  # Set font color to white
+        )
+    )
+
+    # Update layout for better visualization and fixed aspect ratio
+    fig.update_layout(
+        margin=dict(t=0, l=0, r=0, b=0),
+        width=400,  # Set the width of the figure
+        height=400,  # Set the height of the figure
+    )
+
+    fig.show()
+    fig.write_image(path_out, scale=4)
+
+
+def plot_multimodal_chart(*paths: str, path_out: str = "chart.png"):
+    import plotly.graph_objects as go
+
+    categories = {}
+    for p in tqdm(paths):
+        doc = MultimodalDocument.load(p)
+        domain = doc.get_domain()
+        for page in doc.pages:
+            if len(page.text) > 20:
+                categories.setdefault(domain, []).append("Text")
+            object_labels = [o.category for o in page.get_tables_and_figures()]
+            if "Table" in object_labels:
+                categories.setdefault(domain, []).append("Table")
+            if "Picture" in object_labels:
+                categories.setdefault(domain, []).append("Figure")
+
+    categories = {key: random.sample(lst, 1000) for key, lst in categories.items()}
+    print({key: Counter(lst) for key, lst in categories.items()})
+
+    values = [len(lst) for lst in categories.values()]
+    labels = list(categories.keys())
+    parents = [""] * len(categories)
+    for i, (key, lst) in enumerate(categories.items()):
+        unique = sorted(set(lst))
+        values.extend([lst.count(u) for u in unique])
+        categories[key] = unique
+        labels.extend([" " * i + u for u in unique])
         parents.extend([key] * len(unique))
 
     fig = go.Figure(
@@ -477,6 +529,35 @@ def test_judge_self_bias(*paths: str):
         )
 
 
+def test_results(*paths: str):
+    def filter_fn(
+        samples: List[MultimodalSample], category: str
+    ) -> List[MultimodalSample]:
+        if category == "text":
+            return [s for s in samples if "text" in s.category]
+        elif category == "figure":
+            return [s for s in samples if "figure" in s.category]
+        elif category == "table":
+            return [s for s in samples if "table" in s.category]
+        else:
+            return samples
+
+    records = []
+    for p in paths:
+        info = dict(path=p)
+        for label in ["text", "figure", "table", "all"]:
+            data = MultimodalData.load(p)
+            scores = [
+                judge.score
+                for s in filter_fn(data.samples, label)
+                for judge in s.judgements
+            ]
+            info[label] = sum(scores) / len(scores)
+        records.append(info)
+
+    print(pd.DataFrame(records).round(2))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -519,6 +600,10 @@ p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 {'path': 'outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json', 'self': 4.556, 'other': 4.517}
 {'path': 'outputs/gemini-1.5-pro-001/colpali/top_k=5.json', 'self': 4.311, 'other': 4.417}
 {'path': 'outputs/gpt-4o-2024-08-06/colpali/top_k=5.json', 'self': 4.556, 'other': 4.528}
+
+p analysis.py plot_data_chart
+p analysis.py plot_multimodal_chart data/test/*.json
+p analysis.py test_results outputs/*/colpali/top_k=5.json
 """
 
 
