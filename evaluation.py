@@ -48,11 +48,16 @@ def generate_answers(
     retriever_name: str,
     output_dir: str = "outputs",
     top_k: int = 5,
+    use_full_image: bool = False,
 ):
     generator = select_model(generator_name)
     data = MultimodalData.load(data_path)
     path_out = Path(output_dir, generator_name, retriever_name, f"{top_k=}.json")
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+    if use_full_image:
+        path_out = path_out.with_name(
+            path_out.name.replace(".json", "_full_image.json")
+        )
 
     with open(path_out, "w") as f:
         for sample in tqdm(data.samples, desc=str(path_out)):
@@ -66,6 +71,13 @@ def generate_answers(
                     if p.text:
                         context.append(p.text)
                     context.extend(o.get_image() for o in p.get_tables_and_figures())
+
+            if use_full_image:
+                context = [
+                    p.get_full_image()
+                    for p in doc.pages
+                    if p.number in sample.retrieved_pages
+                ]
 
             inputs = [
                 "Context:",
@@ -181,19 +193,48 @@ p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-mini-2024-07-18
 
 p evaluation.py run_multi_judge outputs/gpt-4o-2024-08-06/colpali/top_k=5.json
-[20:27<00:00, 13.64s/it, score=4.54]
 p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json
-[20:54<00:00, 13.94s/it, score=4.53]
 p evaluation.py run_multi_judge outputs/gemini-1.5-pro-001/colpali/top_k=5.json
-[21:08<00:00, 14.09s/it, score=4.38]
 p evaluation.py run_multi_judge outputs/intern/colpali/top_k=5.json
-[14:40<00:00,  9.78s/it, score=3.87]
 p evaluation.py run_multi_judge outputs/idefics/colpali/top_k=5.json
-[14:29<00:00,  9.67s/it, score=3.09]
 p evaluation.py run_multi_judge outputs/onevision/colpali/top_k=5.json
-[14:32<00:00,  9.69s/it, score=3.8]
 p evaluation.py run_multi_judge outputs/gpt-4o-mini-2024-07-18/colpali/top_k=5.json
-[15:06<00:00, 10.07s/it, score=4.2]
+
+p analysis.py test_results outputs/*/colpali/top_k=5.json
+                                                path  text  figure  table   all
+0  outputs/claude-3-5-sonnet-20240620/colpali/top...  4.68    4.27   4.64  4.53
+1    outputs/gemini-1.5-pro-001/colpali/top_k=5.json  4.63    4.19   4.32  4.38
+2     outputs/gpt-4o-2024-08-06/colpali/top_k=5.json  4.72    4.41   4.48  4.54
+3  outputs/gpt-4o-mini-2024-07-18/colpali/top_k=5...  4.60    3.90   4.11  4.20
+4               outputs/idefics/colpali/top_k=5.json  4.02    2.64   2.59  3.09
+5                outputs/intern/colpali/top_k=5.json  4.38    3.70   3.52  3.87
+6             outputs/onevision/colpali/top_k=5.json  4.27    3.66   3.47  3.80
+
+################################################################################
+Input the full high-res image intead of extracted texts and table / figure images
+
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-2024-08-06 --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name claude-3-5-sonnet-20240620 --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gemini-1.5-pro-001 --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name highres_onevision --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name highres_intern --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name highres_idefics --use_full_image
+
+p evaluation.py run_multi_judge outputs/gpt-4o-2024-08-06/colpali/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-001/colpali/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/highres_onevision/colpali/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/highres_intern/colpali/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/highres_idefics/colpali/top_k=5_full_image.json
+
+p analysis.py test_results outputs/*/colpali/top_k=5_full_image.json
+                                                path  text  figure  table   all
+0  outputs/claude-3-5-sonnet-20240620/colpali/top...  4.73    4.34   4.52  4.53
+1  outputs/gemini-1.5-pro-001/colpali/top_k=5_ful...  4.09    4.02   3.46  3.86
+2  outputs/gpt-4o-2024-08-06/colpali/top_k=5_full...  4.61    4.17   4.43  4.40
+3  outputs/highres_idefics/colpali/top_k=5_full_i...  2.80    2.69   2.37  2.62
+4  outputs/highres_intern/colpali/top_k=5_full_im...  3.74    3.23   2.88  3.29
+5  outputs/highres_onevision/colpali/top_k=5_full...  3.31    2.93   3.07  3.10
 
 """
 

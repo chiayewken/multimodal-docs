@@ -546,6 +546,8 @@ def test_results(*paths: str):
     records = []
     for p in paths:
         info = dict(path=p)
+        if not MultimodalData.load(p).samples[0].judgements:
+            continue
         for label in ["text", "figure", "table", "all"]:
             data = MultimodalData.load(p)
             scores = [

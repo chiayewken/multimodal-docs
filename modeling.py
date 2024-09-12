@@ -302,6 +302,7 @@ class RekaModel(EvalModel):
 class InternModel(EvalModel):
     engine: str = "OpenGVLab/InternVL2-26B-AWQ"
     client: Optional[VLAsyncEngine] = None
+    image_size: int = 448
 
     def load(self):
         if self.client is None:
@@ -313,9 +314,14 @@ class InternModel(EvalModel):
         self.load()
         config = lmdeploy.GenerationConfig(max_new_tokens=self.max_output_tokens)
         text = "\n\n".join([x for x in inputs if isinstance(x, str)])
-        images = [resize_image(x, 448) for x in inputs if isinstance(x, Image.Image)]
+        size = self.image_size
+        images = [resize_image(x, size) for x in inputs if isinstance(x, Image.Image)]
         response = self.client((text, images), generation_config=config)
         return response.text
+
+
+class HighresInternModel(InternModel):
+    image_size: int = 768
 
 
 class OwlModel(EvalModel):
@@ -448,6 +454,7 @@ class OneVisionModel(EvalModel):
     tokenizer: Optional[PreTrainedTokenizer] = None
     model: Optional[PreTrainedModel] = None
     processor: Optional[ProcessorMixin] = None
+    image_size: int = 384
 
     def load(self):
         if self.model is None:
@@ -462,9 +469,10 @@ class OneVisionModel(EvalModel):
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
         self.load()
         warnings.filterwarnings("ignore")
-        images = [resize_image(x, 384) for x in inputs if isinstance(x, Image.Image)]
+        size = self.image_size
+        images = [resize_image(x, size) for x in inputs if isinstance(x, Image.Image)]
         if not images:
-            images = [Image.new("RGB", (384, 384), (255, 255, 255))]
+            images = [Image.new("RGB", (size, size), (255, 255, 255))]
         image_tensor = process_images(images, self.processor, self.model.config)
         image_list = [x.to(dtype=torch.float16, device="cuda") for x in image_tensor]
 
@@ -494,6 +502,10 @@ class OneVisionModel(EvalModel):
             max_new_tokens=self.max_output_tokens,
         )
         return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+
+
+class HighresOneVisionModel(OneVisionModel):
+    image_size: int = 768
 
 
 class GemmaModel(EvalModel):
@@ -537,6 +549,7 @@ class IdeficsModel(EvalModel):
     model: Optional[Idefics2ForConditionalGeneration] = None
     processor: Optional[Idefics2Processor] = None
     device: str = "cuda"
+    image_size: int = 384
 
     def load(self):
         if self.model is None:
@@ -553,7 +566,8 @@ class IdeficsModel(EvalModel):
         content.append(dict(type="text", text=text))
 
         messages = [dict(role="user", content=content)]
-        images = [resize_image(x, 384) for x in inputs if isinstance(x, Image.Image)]
+        size = self.image_size
+        images = [resize_image(x, size) for x in inputs if isinstance(x, Image.Image)]
         prompt = self.processor.apply_chat_template(
             messages, add_generation_prompt=True
         )
@@ -571,6 +585,10 @@ class IdeficsModel(EvalModel):
             )
             texts = self.processor.batch_decode(outputs, skip_special_tokens=True)
             return texts[0].split("Assistant:", maxsplit=1)[-1].strip()
+
+
+class HighresIdeficsModel(IdeficsModel):
+    image_size: int = 768
 
 
 class CloudModel(EvalModel):
@@ -734,6 +752,9 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         owl=OwlModel,
         fasttext=FastTextModel,
         langdetect=LangDetectModel,
+        highres_onevision=HighresOneVisionModel,
+        highres_intern=HighresInternModel,
+        highres_idefics=HighresIdeficsModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
