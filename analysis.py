@@ -583,6 +583,33 @@ def test_retriever_results(*paths: str):
     print(pd.DataFrame(records).round(1))
 
 
+def show_model_preds(path: str, path_out: str, num_sample: int = 30):
+    data = MultimodalData.load(path)
+    content = []
+    mapping = {}
+    random.seed(0)
+
+    sample: MultimodalSample
+    for sample in tqdm(random.sample(data.samples, k=num_sample)):
+        if sample.source not in mapping:
+            mapping[sample.source] = MultimodalDocument.load(sample.source)
+        doc = mapping[sample.source]
+        pages = [p for p in doc.pages if p.number in sample.evidence_pages]
+        assert len(pages) == 1
+        content.extend(
+            [
+                f"<b>Source</b> ({sample.category}): {sample.source} (Page {sample.evidence_pages[0]})",
+                f"<b>Question</b> ({sample.annotator}): {sample.question}",
+                f"<b>Model Response</b> ({sample.generator}): {sample.pred}",
+                *[f"<b>Judge</b> ({j.name}): {j.score}" for j in sample.judgements],
+                pages[0].get_full_image(),
+                "",
+            ]
+        )
+
+    save_multimodal_document(content, path_out, pagesize=(595, 595 * 2))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -631,6 +658,7 @@ p analysis.py plot_multimodal_chart data/test/*.json
 p analysis.py test_results outputs/*/colpali/top_k=5.json
 bash scripts/eval_retrievers.sh
 p analysis.py test_retriever_results outputs/retrieve/test/*.json
+p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json renders/pred_claude.pdf
 """
 
 

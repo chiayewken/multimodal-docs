@@ -4,7 +4,7 @@ import io
 import json
 import shutil
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Tuple
 
 # noinspection PyPackageRequirements
 import fitz
@@ -266,6 +266,13 @@ class MultimodalData(BaseModel):
             samples = [MultimodalSample(**json.loads(line)) for line in f]
         return cls(samples=samples)
 
+    def load_documents(self) -> Dict[str, MultimodalDocument]:
+        documents = {}
+        for s in self.samples:
+            if s.source not in documents:
+                documents[s.source] = MultimodalDocument.load(s.source)
+        return documents
+
 
 def download_file(url, filename: str = None, overwrite: bool = False):
     if filename is None:
@@ -308,6 +315,7 @@ def save_multimodal_document(
     content: List[Union[str, Image.Image]],
     path: str,
     max_size: int = 512,
+    pagesize: Tuple[int, int] = (595, 842),
 ):
     story = []
     for item in tqdm(content, desc=path):
@@ -325,7 +333,7 @@ def save_multimodal_document(
             story.append(DocImage(content, width=width, height=height))
 
     Path(path).parent.mkdir(exist_ok=True, parents=True)
-    template = SimpleDocTemplate(path)
+    template = SimpleDocTemplate(path, pagesize=pagesize)
     template.build(story)
     print(Path(path).absolute())
 
