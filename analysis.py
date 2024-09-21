@@ -1,3 +1,4 @@
+import hashlib
 import io
 import random
 import re
@@ -28,6 +29,7 @@ from data_loading import (
     MultimodalDocument,
     MultimodalObject,
     save_multimodal_document,
+    get_domain,
 )
 from modeling import select_model
 from reading import get_doc_images
@@ -124,7 +126,7 @@ def test_load_from_pdf(
     print(Path(path_out).absolute())
 
 
-def read_index(path: str = "data/nyse.txt", seed: int = 0):
+def read_companies(path: str = "data/nyse.txt", seed: int = 0):
     # https://www.annualreports.com/Companies?exch=1
     # https://uk.marketscreener.com/quote/index/MSCI-WORLD-107361487/components/
     records = []
@@ -610,6 +612,65 @@ def show_model_preds(path: str, path_out: str, num_sample: int = 30):
     save_multimodal_document(content, path_out, pagesize=(595, 595 * 2))
 
 
+def hash_text(text: str) -> str:
+    return hashlib.md5(text.encode()).hexdigest()
+
+
+def prepare_question_sheet(
+    path: str,
+    path_out: str,
+    num_sample: int = 30,
+    domains: List[str] = (),
+    data_file: str = "",
+):
+    data = MultimodalData.load(path)
+    documents = {}
+    records = []
+    content = []
+
+    if num_sample > 0:
+        random.seed(0)
+        data.samples = random.sample(data.samples, k=num_sample)
+    sample: MultimodalSample
+    for sample in tqdm(data.samples):
+        info = dict(
+            data_file=data_file,
+            domain=get_domain(sample.source),
+            content_category=sample.category,
+            question_id=hash_text(sample.source + sample.question),
+            question=sample.question,
+            check_1="",
+            check_2="",
+            check_3="",
+            check_4="",
+        )
+        if domains and info["domain"] not in domains:
+            continue
+        records.append(info)
+
+        if sample.source not in documents:
+            documents[sample.source] = MultimodalDocument.load(sample.source)
+        doc = documents[sample.source]
+        pages = [p for p in doc.pages if p.number in sample.evidence_pages]
+        assert len(pages) == 1
+        content.extend(
+            [
+                f"<b>Source</b> ({sample.category}): {sample.source} (Page {sample.evidence_pages[0]})",
+                f"<b>Question</b> ({sample.annotator}): {sample.question}",
+                f"<b>Question ID</b> {info['question_id']}",
+                pages[0].get_full_image(),
+                "",
+            ]
+        )
+
+    Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+    df = pd.DataFrame(records)
+    print(df.shape)
+    print(df.head())
+    df.to_excel(path_out, index=False)
+    save_multimodal_document(content, data_file, pagesize=(595, 595 * 2))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -659,6 +720,9 @@ p analysis.py test_results outputs/*/colpali/top_k=5.json
 bash scripts/eval_retrievers.sh
 p analysis.py test_retriever_results outputs/retrieve/test/*.json
 p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json renders/pred_claude.pdf
+p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json data/annotation/demo.pdf
+p analysis.py prepare_question_sheet outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json data/annotation/demo.xlsx --domains "Financial<br>Report,Technical<br>Manuals" --data_file data/annotation/demo.pdf
+p analysis.py prepare_question_sheet data/questions/test_finance.json data/annotation/finance.xlsx --data_file data/annotation/finance.pdf --num_sample 0
 """
 
 

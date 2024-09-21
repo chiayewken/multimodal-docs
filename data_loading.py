@@ -290,10 +290,24 @@ def download_file(url, filename: str = None, overwrite: bool = False):
     print(f"Downloaded: {filename}")
 
 
+def get_domain(url: str) -> str:
+    filename = Path(url).name
+    page = MultimodalPage(
+        number=0, objects=[], text="", image_string="", source=filename
+    )
+    doc = MultimodalDocument(pages=[page])
+    return doc.get_domain()
+
+
 def download_pdfs(path: str, output_dir: str):
     df = pd.read_csv(path).sample(frac=1, random_state=0)  # Distribute domains
     print(df.shape)
     print(df.head())
+
+    # Check all urls are unique
+    assert df["url"].nunique() == df.shape[0]
+    df["domain"] = df["url"].apply(get_domain)
+    print(df["domain"].value_counts())
 
     for url in tqdm(df["url"], desc=output_dir):
         filename = Path(output_dir, Path(url).name)
@@ -344,6 +358,7 @@ python data_loading.py download_pdfs data/test/metadata.csv data/test
 python data_loading.py test_yolo_detector
 p data_loading.py process_documents data/train/*.pdf
 p data_loading.py process_documents data/test/*.pdf
+p data_loading.py process_documents data/test/NYSE*.pdf
 """
 
 

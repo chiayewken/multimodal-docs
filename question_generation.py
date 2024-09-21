@@ -163,6 +163,7 @@ def generate_questions(
 """
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train.json --questions_per_doc 30 --do_verify False
 p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json --questions_per_doc 3
+p question_generation.py generate_questions data/test/NYSE*.json --path_out data/questions/test_finance.json --questions_per_doc 6
 """
 
 
