@@ -17,6 +17,7 @@ from fire import Fire
 from huggingface_hub import hf_hub_download
 from langdetect import LangDetectException
 from openai import OpenAI
+from openai.lib.azure import AzureOpenAI
 from pydantic import BaseModel
 from reka.client import Reka
 from transformers import (
@@ -185,6 +186,22 @@ class OpenAIModel(EvalModel):
 
 class OpenAIMiniModel(OpenAIModel):
     engine: str = "gpt-4o-mini-2024-07-18"
+
+
+class AzureModel(OpenAIModel):
+    engine: str = "gpt4o-0513"
+
+    def load(self):
+        if self.client is None:
+            self.client = AzureOpenAI(
+                azure_endpoint=get_environment_key(".env", "AZURE_ENDPOINT"),
+                api_key=get_environment_key(".env", "AZURE_KEY"),
+                api_version="2024-02-15-preview",
+            )
+
+
+class AzureMiniModel(AzureModel):
+    engine: str = "gpt-4o-mini"
 
 
 class ClaudeModel(EvalModel):
@@ -755,6 +772,8 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         highres_onevision=HighresOneVisionModel,
         highres_intern=HighresInternModel,
         highres_idefics=HighresIdeficsModel,
+        azure=AzureModel,
+        azure_mini=AzureMiniModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -845,6 +864,7 @@ p modeling.py test_run_many --model_name gemini-1.5-pro-001
 p modeling.py test_run_many --model_name gpt-4o-2024-05-13
 p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name azure
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern (good)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name onevision (not very good)
