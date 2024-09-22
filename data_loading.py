@@ -311,7 +311,8 @@ def download_pdfs(path: str, output_dir: str):
 
     for url in tqdm(df["url"], desc=output_dir):
         filename = Path(output_dir, Path(url).name)
-        download_file(url, str(filename), overwrite=False)
+        suffix = "" if filename.suffix == ".pdf" else ".pdf"
+        download_file(url, str(filename) + suffix, overwrite=False)
 
 
 def process_documents(*paths: str):
@@ -359,6 +360,7 @@ python data_loading.py test_yolo_detector
 p data_loading.py process_documents data/train/*.pdf
 p data_loading.py process_documents data/test/*.pdf
 p data_loading.py process_documents data/test/NYSE*.pdf
+p data_loading.py process_documents data/test/24*.pdf
 """
 
 
