@@ -26,12 +26,10 @@ def check_question(
 ) -> bool:
     parts = [
         f"Based on the document content and question, answer yes or no only to the following questions:",
-        f"1.Does the content contain any {category}?",
-        f"2. Is the question relevant to the {category}?",
-        f"3. Are the {category} necessary in order to answer the question?",
-        f"4. Is the question clear and answerable based on the {category}?",
-        f"5. Is the question of reasonable difficulty and answer cannot be simply copied?",
-        f"Give the response in the following example format: 1. yes/no 2. yes/no 3. yes/no 4. yes/no 5. yes/no",
+        f"1. Does the question require information from the {category}?",
+        f"2. Is the question clear and answerable based on the {category}?",
+        f"3. Is the question of reasonable difficulty and answer cannot be simply copied?",
+        f"Give the response in the following example format: 1. yes/no 2. yes/no 3. yes/no",
     ]
 
     checks = ["\n".join(parts)]  # Combine multiple checks into one prompt / response
@@ -61,6 +59,23 @@ def check_question(
     return True
 
 
+def check_target(x: Union[str, Image.Image], category: str, model: EvalModel) -> bool:
+    if isinstance(x, str):
+        assert "text" in category.lower()
+        return True
+    elif "figure" in category.lower():
+        instruction = f"Is this image a valid example of a {category.lower()}? Note that equations are not valid. Answer yes or no only."
+    elif "table" in category.lower():
+        instruction = f"Is this image a valid example of a {category.lower()}? Note that table of contents are not valid. Answer yes or no only."
+    else:
+        raise ValueError
+
+    assert isinstance(x, Image.Image)
+    output = model.run([instruction, x])
+    print(dict(target=x, category=category, instruction=instruction, output=output))
+    return "yes" in output.lower()
+
+
 def prepare_target_and_context(
     page: MultimodalPage, doc: MultimodalDocument, category: str
 ) -> Tuple[Union[str, Image.Image], str]:
@@ -83,7 +98,8 @@ def generate_questions(
     questions_per_doc: int = 15,
     object_categories: List[str] = ("Picture", "Table", "Text"),
     model_names: List[str] = (
-        "gpt-4o-2024-08-06",
+        # "gpt-4o-2024-08-06",
+        "azure",
         "claude-3-5-sonnet-20240620",
         "gemini-1.5-pro-001",
     ),
@@ -132,6 +148,9 @@ def generate_questions(
                         f"Instruction: {instruction}",
                     ]
 
+                    if not check_target(target, mapping[label], model):
+                        continue
+
                     question: str = model.run(inputs).strip()
                     print(dict(doc=p.source, page=p.number, question=question))
                     is_valid = not do_verify or check_question(
@@ -164,6 +183,7 @@ def generate_questions(
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train.json --questions_per_doc 30 --do_verify False
 p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json --questions_per_doc 3
 p question_generation.py generate_questions data/test/NYSE*.json --path_out data/questions/test_finance.json --questions_per_doc 6
+p question_generation.py generate_questions data/test/24*.json --path_out data/questions/test_academic.json --questions_per_doc 6
 """
 
 

@@ -294,12 +294,15 @@ def test_object_categories(*paths: str):
 
 
 def test_document_lengths(*paths: str):
-    print("Finance")
-    docs = [MultimodalDocument.load(p) for p in tqdm(paths) if "NYSE" in p]
-    print(sum(len(d.pages) for d in docs) / len(docs))
-    print("Academic")
-    docs = [MultimodalDocument.load(p) for p in tqdm(paths) if "NYSE" not in p]
-    print(sum(len(d.pages) for d in docs) / len(docs))
+    records = []
+    for p in paths:
+        doc = fitz.open(p)
+        records.append(dict(path=p, pages=doc.page_count, size=Path(p).stat().st_size))
+
+    df = pd.DataFrame(records)
+    df = df.sort_values("pages", ascending=False)
+    print(df)
+    print(df.shape)
 
 
 def test_questions(path: str, path_out="demo.pdf", num_sample: int = 30):
@@ -684,7 +687,6 @@ p analysis.py test_doc_content data/train/*.json
 p analysis.py test_doc_parsing data/train/*.json
 p analysis.py show_document data/train/2012.14143v1.json
 p analysis.py test_object_categories data/train/*.json
-p analysis.py test_document_lengths data/test/*.json
 p analysis.py test_questions data/questions/test.json
 
 p analysis.py test_retrieval data/questions/test.json
@@ -721,8 +723,12 @@ bash scripts/eval_retrievers.sh
 p analysis.py test_retriever_results outputs/retrieve/test/*.json
 p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json renders/pred_claude.pdf
 p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json data/annotation/demo.pdf
+
 p analysis.py prepare_question_sheet outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json data/annotation/demo.xlsx --domains "Financial<br>Report,Technical<br>Manuals" --data_file data/annotation/demo.pdf
 p analysis.py prepare_question_sheet data/questions/test_finance.json data/annotation/finance.xlsx --data_file data/annotation/finance.pdf --num_sample 0
+p analysis.py test_document_lengths data/test/24*.pdf
+p analysis.py test_document_lengths data/test/NY*.pdf
+p analysis.py prepare_question_sheet data/questions/test_academic.json data/annotation/academic.xlsx --data_file data/annotation/academic.pdf --num_sample 0
 """
 
 
