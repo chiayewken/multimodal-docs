@@ -629,6 +629,7 @@ class CloudModel(EvalModel):
     def count_tokens(self, text: str) -> int:
         if self.tokenizer is None:
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        text = text.replace("<|endoftext|>", "")
         return len(self.tokenizer.encode(text))
 
     def count_cost(self, data: List[Union[str, Image.Image]], is_input: bool) -> float:
