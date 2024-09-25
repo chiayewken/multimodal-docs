@@ -315,10 +315,16 @@ def download_pdfs(path: str, output_dir: str):
         download_file(url, str(filename) + suffix, overwrite=False)
 
 
-def process_documents(*paths: str):
+def process_documents(*paths: str, exclude: List[str] = ()):
     # Parse the pdfs into images and convert to json format
     detector = YoloDetector()
-    for p in tqdm(paths):
+    lst = []
+    for p in paths:
+        if any(Path(p).name.startswith(str(prefix)) for prefix in exclude):
+            continue
+        lst.append(p)
+
+    for p in tqdm(lst):
         doc = MultimodalDocument.load_from_pdf(p, detector=detector)
         path_out = Path(p).with_suffix(".json")
         path_out.parent.mkdir(parents=True, exist_ok=True)
@@ -361,6 +367,7 @@ p data_loading.py process_documents data/train/*.pdf
 p data_loading.py process_documents data/test/*.pdf
 p data_loading.py process_documents data/test/NYSE*.pdf
 p data_loading.py process_documents data/test/24*.pdf
+p data_loading.py process_documents data/test/*.pdf --exclude "NYSE,24"
 """
 
 

@@ -105,6 +105,7 @@ def generate_questions(
     ),
     random_seed: int = 0,
     do_verify: bool = True,
+    exclude: List[str] = (),
 ):
     print(locals())
     random.seed(random_seed)
@@ -113,6 +114,14 @@ def generate_questions(
     category_counts = []
     model_map = {m: select_model(m) for m in model_names}
     language_checker = select_model("langdetect")
+
+    lst = []
+    for doc_path in paths:
+        if any(Path(doc_path).name.startswith(str(prefix)) for prefix in exclude):
+            continue
+        lst.append(doc_path)
+    paths = lst
+    print(dict(paths=len(paths)))
 
     with open(path_out, "w") as f:
         for doc_path in tqdm(random.sample(paths, k=len(paths)), desc=path_out):
@@ -184,6 +193,7 @@ p question_generation.py generate_questions data/train/*.json --path_out data/qu
 p question_generation.py generate_questions data/test/*.json --path_out data/questions/test.json --questions_per_doc 3
 p question_generation.py generate_questions data/test/NYSE*.json --path_out data/questions/test_finance.json --questions_per_doc 6
 p question_generation.py generate_questions data/test/24*.json --path_out data/questions/test_academic.json --questions_per_doc 6
+p question_generation.py generate_questions data/test/*.json --exclude "24,NYSE" --path_out data/questions/test_product.json --questions_per_doc 6
 """
 
 
