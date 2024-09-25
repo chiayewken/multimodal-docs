@@ -11,6 +11,7 @@ import fitz  # imports the pymupdf library
 import krippendorff
 import numpy as np
 import pandas as pd
+import tiktoken
 from fire import Fire
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -227,6 +228,29 @@ def test_doc_content(
     print(Path(path_out).absolute())
 
 
+def test_content_distribution(*paths: str):
+    records = []
+    tokenizer = tiktoken.get_encoding("cl100k_base")
+
+    for p in tqdm(paths):
+        doc = MultimodalDocument.load(p)
+        categories = [o.category for page in doc.pages for o in page.objects]
+        text = "".join(p.text for p in doc.pages).replace("<|endoftext|>", "")
+        info = dict(
+            source=p,
+            domain=doc.get_domain(),
+            figure=categories.count("Picture"),
+            table=categories.count("Table"),
+            tokens=len(tokenizer.encode(text)),
+        )
+        records.append(info)
+
+    df = pd.DataFrame(records)
+    print(df["domain"].value_counts())
+    print(df.groupby("domain").mean(numeric_only=True).round(1))
+    print(df.mean(numeric_only=True).round(1))
+
+
 def test_doc_parsing(
     *paths: str, pages_per_doc: int = 1, path_out: str = "renders/parse.pdf"
 ):
@@ -295,14 +319,15 @@ def test_object_categories(*paths: str):
 
 def test_document_lengths(*paths: str):
     records = []
-    for p in paths:
+    for p in tqdm(paths):
         doc = fitz.open(p)
         records.append(dict(path=p, pages=doc.page_count, size=Path(p).stat().st_size))
 
     df = pd.DataFrame(records)
     df = df.sort_values("pages", ascending=False)
+    average = df["pages"].mean()
     print(df)
-    print(df.shape)
+    print(df.shape, dict(average=average))
 
 
 def test_questions(path: str, path_out="demo.pdf", num_sample: int = 30):
@@ -674,6 +699,14 @@ def prepare_question_sheet(
     save_multimodal_document(content, data_file, pagesize=(595, 595 * 2))
 
 
+def check_excel(*paths: str):
+    for p in paths:
+        df = pd.read_excel(p)
+        print(p, df.shape)
+        print(df["content_category"].value_counts())
+        print(df.head())
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -726,9 +759,14 @@ p analysis.py show_model_preds outputs/claude-3-5-sonnet-20240620/colpali/top_k\
 
 p analysis.py prepare_question_sheet outputs/claude-3-5-sonnet-20240620/colpali/top_k\=5.json data/annotation/demo.xlsx --domains "Financial<br>Report,Technical<br>Manuals" --data_file data/annotation/demo.pdf
 p analysis.py prepare_question_sheet data/questions/test_finance.json data/annotation/finance.xlsx --data_file data/annotation/finance.pdf --num_sample 0
+p analysis.py prepare_question_sheet data/questions/test_academic.json data/annotation/academic.xlsx --data_file data/annotation/academic.pdf --num_sample 0
+p analysis.py prepare_question_sheet data/questions/test_product.json data/annotation/product.xlsx --data_file data/annotation/product.pdf --num_sample 0
+
 p analysis.py test_document_lengths data/test/24*.pdf
 p analysis.py test_document_lengths data/test/NY*.pdf
-p analysis.py prepare_question_sheet data/questions/test_academic.json data/annotation/academic.xlsx --data_file data/annotation/academic.pdf --num_sample 0
+p analysis.py check_excel data/annotation/*.xlsx
+p analysis.py test_content_distribution data/test/*.json
+p analysis.py test_content_distribution data/test/NY*.json
 """
 
 
