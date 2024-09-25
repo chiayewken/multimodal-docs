@@ -367,48 +367,15 @@ def test_retrieval(data_path: str):
         print(dict(k=k, success=sum(success) / len(success)))
 
 
-def plot_data_chart(path_out: str = "chart.png"):
+def plot_data_chart(path: str = "data/test/metadata.csv", path_out: str = "chart.png"):
     import plotly.graph_objects as go
 
-    # New data
-    categories = {
-        "Technical<br>Manuals": [
-            "phone",
-            "stove",
-            "router",
-            "blender",
-            "vacuum",
-            "breaker",
-            "laptop",
-            "fridge",
-            "car",
-            "phone",
-        ],
-        "Academic<br>Paper": [
-            "mathematics",
-            "biology",
-            "physics",
-            "computer",
-            "computer",
-            "physics",
-            "finance",
-            "physics",
-            "statistics",
-            "engineering",
-        ],
-        "Financial<br>Report": [
-            "healthcare",
-            "materials",
-            "consumer",
-            "financial",
-            "industrial",
-            "services",
-            "consumer",
-            "materials",
-            "technology",
-            "technology",
-        ],
-    }
+    df = pd.read_csv(path)
+    print(df.shape)
+    categories = {}
+    for url, label in df.values:
+        domain = get_domain(url)
+        categories.setdefault(domain, []).append(label)
 
     values = [len(lst) for lst in categories.values()]
     labels = list(categories.keys())
@@ -749,7 +716,6 @@ p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 {'path': 'outputs/gemini-1.5-pro-001/colpali/top_k=5.json', 'self': 4.311, 'other': 4.417}
 {'path': 'outputs/gpt-4o-2024-08-06/colpali/top_k=5.json', 'self': 4.556, 'other': 4.528}
 
-p analysis.py plot_data_chart
 p analysis.py plot_multimodal_chart data/test/*.json
 p analysis.py test_results outputs/*/colpali/top_k=5.json
 bash scripts/eval_retrievers.sh
@@ -767,6 +733,7 @@ p analysis.py test_document_lengths data/test/NY*.pdf
 p analysis.py check_excel data/annotation/*.xlsx
 p analysis.py test_content_distribution data/test/*.json
 p analysis.py test_content_distribution data/test/NY*.json
+p analysis.py plot_data_chart
 """
 
 
