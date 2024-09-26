@@ -1,4 +1,6 @@
 # https://github.com/hiyouga/LLaMA-Factory/blob/6b62550af1acda93246e05b37061f2ad7db58e55/examples/train_lora/qwen2vl_lora_sft.yaml
+# llamafactory-cli train scripts/qwen2vl_lora_sft.yaml
+# llamafactory-cli export scripts/merge_qwen2vl_lora_sft.yaml
 ### model
 model_name_or_path: Qwen/Qwen2-VL-7B-Instruct
 

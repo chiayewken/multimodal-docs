@@ -591,6 +591,17 @@ class QwenModel(EvalModel):
         return output_text[0]
 
 
+class CustomQwenModel(QwenModel):
+    engine: str = "models/qwen2_vl_lora_sft"
+
+    def load(self):
+        super().load()
+        # noinspection PyUnresolvedReferences
+        template = self.processor.tokenizer.chat_template
+        if template is not None:
+            self.processor.chat_template = template
+
+
 class GemmaModel(EvalModel):
     engine: str = "google/paligemma-3b-mix-448"
     model: Optional[PaliGemmaForConditionalGeneration] = None
@@ -844,6 +855,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         azure=AzureModel,
         azure_mini=AzureMiniModel,
         qwen=QwenModel,
+        custom_qwen=CustomQwenModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -943,6 +955,7 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-c
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name cogvlm (multi-image not supported)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name owl (bad)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name qwen
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name custom_qwen
 
 """
 
