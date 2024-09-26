@@ -19,6 +19,7 @@ from langdetect import LangDetectException
 from openai import OpenAI
 from openai.lib.azure import AzureOpenAI
 from pydantic import BaseModel
+from qwen_vl_utils import process_vision_info
 from reka.client import Reka
 from transformers import (
     PaliGemmaForConditionalGeneration,
@@ -31,6 +32,8 @@ from transformers import (
     AutoModel,
     AutoTokenizer,
     AutoModelForCausalLM,
+    Qwen2VLProcessor,
+    Qwen2VLForConditionalGeneration,
 )
 
 from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
@@ -525,6 +528,69 @@ class HighresOneVisionModel(OneVisionModel):
     image_size: int = 768
 
 
+class QwenModel(EvalModel):
+    engine: str = "Qwen/Qwen2-VL-7B-Instruct"
+    model: Optional[Qwen2VLForConditionalGeneration] = None
+    processor: Optional[Qwen2VLProcessor] = None
+    device: str = "cuda"
+    image_size: int = 448
+
+    def load(self):
+        if self.model is None:
+            # noinspection PyTypeChecker
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                self.engine, torch_dtype="auto", device_map="auto"
+            )
+            self.model = self.model.to(self.device).eval()
+            self.processor = Qwen2VLProcessor.from_pretrained(self.engine)
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+
+    @staticmethod
+    def make_messages(inputs: List[Union[str, Image.Image]]):
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        content = [
+            dict(type="image", image=f"data:image;base64,{convert_image_to_text(x)}")
+            for x in inputs
+            if isinstance(x, Image.Image)
+        ]
+        content.append(dict(type="text", text=text))
+        return [dict(role="user", content=content)]
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        messages = self.make_messages(inputs)
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+        image_inputs, video_inputs = process_vision_info(messages)
+        # noinspection PyTypeChecker
+        model_inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        ).to(self.device)
+
+        with torch.inference_mode():
+            generated_ids = self.model.generate(
+                **model_inputs, max_new_tokens=self.max_output_tokens
+            )
+
+        generated_ids_trimmed = [
+            out_ids[len(in_ids) :]
+            for in_ids, out_ids in zip(model_inputs.input_ids, generated_ids)
+        ]
+        output_text = self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        return output_text[0]
+
+
 class GemmaModel(EvalModel):
     engine: str = "google/paligemma-3b-mix-448"
     model: Optional[PaliGemmaForConditionalGeneration] = None
@@ -533,6 +599,7 @@ class GemmaModel(EvalModel):
 
     def load(self):
         if self.model is None:
+            # noinspection PyTypeChecker
             self.model = PaliGemmaForConditionalGeneration.from_pretrained(
                 self.engine,
                 torch_dtype=torch.bfloat16,
@@ -570,6 +637,7 @@ class IdeficsModel(EvalModel):
 
     def load(self):
         if self.model is None:
+            # noinspection PyTypeChecker
             self.model = Idefics2ForConditionalGeneration.from_pretrained(self.engine)
             self.model = self.model.to(self.device).eval()
             self.processor = Idefics2Processor.from_pretrained(self.engine)
@@ -609,7 +677,7 @@ class HighresIdeficsModel(IdeficsModel):
 
 
 class CloudModel(EvalModel):
-    # Queries the server on google cloud for completions, which should work in any country
+    # Queries the server on Google cloud for completions, which should work in any country
     url: str = "http://35.208.161.228:8000/completions"
     tokenizer: Optional[tiktoken.Encoding] = None
     costs: List[float] = []
@@ -775,6 +843,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         highres_idefics=HighresIdeficsModel,
         azure=AzureModel,
         azure_mini=AzureMiniModel,
+        qwen=QwenModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -873,6 +942,7 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name idefic
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name reka-core-20240501 (error for > 6 images)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name cogvlm (multi-image not supported)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name owl (bad)
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name qwen
 
 """
 

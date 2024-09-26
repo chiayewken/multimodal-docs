@@ -1,4 +1,4 @@
-Pillow==10.1.0
+Pillow==10.4.0
 PyMuPDF==1.24.2
 anthropic==0.31.1
 black==23.12.1
@@ -7,7 +7,7 @@ google-generativeai==0.3.2
 llama-index==0.10.32
 matplotlib==3.8.2
 nltk==3.8.1
-openai==1.23.6
+openai==1.48.0
 openpyxl==3.1.2
 pandas==2.2.0
 peft==0.11.1
@@ -19,12 +19,11 @@ reka-api==3.0.8
 reportlab==4.0.9
 sentence-transformers==3.0.1
 sentencepiece==0.2.0
-torch==2.2.0
+torch==2.4.0
 tqdm==4.66.1
-transformers==4.42.4
-# Intern-VL
-pydantic==2.8.2
-#flash-attn==2.6.1
+transformers==4.45.0
+qwen-vl-utils==0.0.8
+pydantic==2.9.2
 labelImg==1.8.6
 ultralytics==8.2.73
 huggingface-hub==0.24.5
@@ -40,6 +39,7 @@ fasttext==0.9.3
 langdetect==1.0.9
 krippendorff==0.7.0
 # GPU-only
-lmdeploy[all]==0.6.0a0
-xformers==0.0.24
+#lmdeploy[all]==0.6.0a0
+xformers==0.0.27.post2
 bitsandbytes==0.43.3
+vllm==0.6.2
