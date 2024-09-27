@@ -577,7 +577,9 @@ def test_retriever_results(*paths: str):
 
         records.append(info)
 
-    print(pd.DataFrame(records).round(1))
+    df = pd.DataFrame(records)
+    df = df.sort_values("all")
+    print(df.round(1))
 
 
 def show_model_preds(path: str, path_out: str, num_sample: int = 30):
@@ -750,6 +752,13 @@ p analysis.py test_content_distribution data/test/*.json
 p analysis.py test_content_distribution data/test/NY*.json
 p analysis.py plot_data_chart
 p analysis.py test_product_domain data/questions/test_product.json
+p analysis.py test_retriever_results outputs/retrieve/test/*.json
+
+                                 path  text  figure  table   all
+1     outputs/retrieve/test/bm25.json  52.8    38.1   43.4  44.9
+2     outputs/retrieve/test/clip.json  61.0    42.1   50.1  51.2
+0      outputs/retrieve/test/bge.json  69.3    49.5   64.0  61.2
+3  outputs/retrieve/test/colpali.json  73.5    62.7   73.7  70.1
 """
 
 

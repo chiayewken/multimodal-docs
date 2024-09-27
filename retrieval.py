@@ -3,8 +3,9 @@ import json
 import random
 import subprocess
 import sys
+from collections import OrderedDict as CollectionsOrderedDict
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, OrderedDict
 
 import numpy as np
 import torch
@@ -135,7 +136,7 @@ class BM25PageRetriever(MultimodalRetriever):
 
 class BGEM3Retriever(MultimodalRetriever):
     path: str = "BAAI/bge-m3"
-    cache: Dict[str, dict] = {}
+    cache: OrderedDict[str, dict] = CollectionsOrderedDict()
     client: Optional[BGEM3FlagModel] = None
 
     def load(self):
@@ -151,6 +152,8 @@ class BGEM3Retriever(MultimodalRetriever):
     def embed_document(self, doc: MultimodalDocument) -> dict:
         texts = [page.text for page in doc.pages]
         key = str(texts)
+        if len(self.cache) > 100:
+            self.cache.popitem(last=False)
         if key not in self.cache:
             self.cache[key] = self.embed_texts(texts)
         return self.cache[key]
@@ -238,7 +241,7 @@ class ColpaliRetriever(MultimodalRetriever):
     model: Optional[ColPali] = None
     processor: Optional[PaliGemmaProcessor] = None
     device: str = "cuda"
-    cache: Dict[str, list] = {}
+    cache: OrderedDict[str, list] = CollectionsOrderedDict()
 
     def load(self):
         if self.model is None:
@@ -251,6 +254,8 @@ class ColpaliRetriever(MultimodalRetriever):
 
     def encode_document(self, doc: MultimodalDocument) -> List[torch.Tensor]:
         hash_id = hashlib.md5(doc.json().encode()).hexdigest()
+        if len(self.cache) > 100:
+            self.cache.popitem(last=False)
         if hash_id not in self.cache:
             images = [page.get_full_image() for page in doc.pages]
             # noinspection PyTypeChecker
