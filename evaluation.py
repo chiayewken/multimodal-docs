@@ -15,9 +15,12 @@ def safe_divide(a: float, b: float) -> float:
     return a / b if b != 0 else 0
 
 
-def test_retriever(data_path: str, retriever_name: str, path: str = "retrieve.json"):
+def test_retriever(*data_paths: str, retriever_name: str, path: str = "retrieve.json"):
     retriever = select_retriever(retriever_name)
-    data = MultimodalData.load(data_path)
+    samples = []
+    for dp in data_paths:
+        samples.extend(MultimodalData.load(dp).samples)
+    data = MultimodalData(samples=samples)
     doc_map = {}
     scores = []
 

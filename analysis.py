@@ -674,6 +674,21 @@ def check_excel(*paths: str):
         print(df.head())
 
 
+def test_product_domain(path: str):
+    data = MultimodalData.load(path)
+    samples = []
+    seen = set()
+    for s in data.samples:
+        key = s.source + s.question
+        print(s.source)
+        if "manuals" in get_domain(s.source).lower() and key not in seen:
+            seen.add(key)
+            samples.append(s)
+            s.retrieved_pages = []
+    print(dict(samples=len(samples)))
+    MultimodalData(samples=samples).save(path)
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -734,6 +749,7 @@ p analysis.py check_excel data/annotation/*.xlsx
 p analysis.py test_content_distribution data/test/*.json
 p analysis.py test_content_distribution data/test/NY*.json
 p analysis.py plot_data_chart
+p analysis.py test_product_domain data/questions/test_product.json
 """
 
 
