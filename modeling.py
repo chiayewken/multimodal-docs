@@ -10,6 +10,7 @@ import langdetect
 import requests
 import tiktoken
 import torch
+import vllm
 from PIL import Image
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ from transformers import (
     AutoModelForCausalLM,
     Qwen2VLProcessor,
     Qwen2VLForConditionalGeneration,
+    BatchEncoding,
 )
 
 from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
@@ -533,7 +535,6 @@ class QwenModel(EvalModel):
     model: Optional[Qwen2VLForConditionalGeneration] = None
     processor: Optional[Qwen2VLProcessor] = None
     device: str = "cuda"
-    image_size: int = 448
 
     def load(self):
         if self.model is None:
@@ -832,6 +833,205 @@ class FastTextModel(EvalModel):
         return max(set(labels), key=labels.count)
 
 
+class LlavaModel(EvalModel):
+    engine: str = "llava-hf/llava-onevision-qwen2-7b-ov-hf"
+    model: Optional[vllm.LLM] = None
+
+    def load(self):
+        if self.model is None:
+            self.model = vllm.LLM(
+                model=self.engine,
+                trust_remote_code=True,
+                limit_mm_per_prompt={"image": 100},
+                dtype="auto",
+            )
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+
+    @staticmethod
+    def make_prompt_and_images(
+        inputs: List[Union[str, Image.Image]]
+    ) -> tuple[str, list[Image.Image], None]:
+        # Adapted from: https://huggingface.co/llava-hf/llava-onevision-qwen2-7b-ov-hf
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        placeholders = "".join(
+            ["<image>" for x in inputs if isinstance(x, Image.Image)]
+        )
+        prompt = (
+            f"<|im_start|>user {placeholders}\n{text}<|im_end|><|im_start|>assistant\n"
+        )
+        print(prompt)
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+        stop_token_ids = None
+        return prompt, images, stop_token_ids
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        prompt, images, stop_token_ids = self.make_prompt_and_images(inputs)
+        sampling_params = vllm.SamplingParams(
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
+            stop_token_ids=stop_token_ids,
+        )
+
+        inputs = {
+            "prompt": prompt,
+            "multi_modal_data": {"image": images},
+        }
+
+        outputs = self.model.generate(inputs, sampling_params=sampling_params)
+        return outputs[0].outputs[0].text
+
+
+class InternSmallModel(EvalModel):
+    engine: str = "OpenGVLab/InternVL2-8B"
+    model: Optional[vllm.LLM] = None
+    tokenizer: Optional[PreTrainedTokenizer] = None
+    image_size: int = 448
+
+    def load(self):
+        if self.model is None:
+            self.model = vllm.LLM(
+                model=self.engine,
+                trust_remote_code=True,
+                limit_mm_per_prompt={"image": 100},
+                dtype="auto",
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.engine, trust_remote_code=True
+            )
+
+    def make_prompt_and_images(
+        self, inputs: List[Union[str, Image.Image]]
+    ) -> tuple[
+        str | List[int] | List[str] | List[List[int]] | BatchEncoding,
+        list[Image.Image],
+        list[int | List[int]],
+    ]:
+        # Adapted from: https://huggingface.co/OpenGVLab/InternVL2-2B
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        placeholders = "\n".join(
+            f"Image-{i}: <image>"
+            for i, x in enumerate(inputs, start=1)
+            if isinstance(x, Image.Image)
+        )
+        messages = [{"role": "user", "content": f"{placeholders}\n{text}"}]
+        prompt = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+
+        stop_tokens = ["<|endoftext|>", "<|im_start|>", "<|im_end|>", "<|end|>"]
+        stop_token_ids = [self.tokenizer.convert_tokens_to_ids(i) for i in stop_tokens]
+        return prompt, images, stop_token_ids
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        prompt, images, stop_token_ids = self.make_prompt_and_images(inputs)
+
+        sampling_params = vllm.SamplingParams(
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
+            stop_token_ids=stop_token_ids,
+        )
+
+        inputs = {
+            "prompt": prompt,
+            "multi_modal_data": {"image": images},
+        }
+
+        outputs = self.model.generate(inputs, sampling_params=sampling_params)
+        return outputs[0].outputs[0].text
+
+
+class PhiModel(EvalModel):
+    engine: str = "microsoft/Phi-3.5-vision-instruct"
+    model: Optional[vllm.LLM] = None
+
+    def load(self):
+        if self.model is None:
+            self.model = vllm.LLM(
+                model=self.engine,
+                trust_remote_code=True,
+                limit_mm_per_prompt={"image": 100},
+                max_model_len=64128,
+                dtype="auto",
+            )
+
+    @staticmethod
+    def make_prompt_and_images(
+        inputs: List[Union[str, Image.Image]]
+    ) -> tuple[str, list[Image.Image]]:
+        # Adapted from: https://huggingface.co/microsoft/Phi-3.5-vision-instruct
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        placeholders = "\n".join(
+            f"<|image_{i}|>"
+            for i, x in enumerate(inputs, start=1)
+            if isinstance(x, Image.Image)
+        )
+        prompt = f"<|user|>\n{placeholders}\n{text}<|end|>\n<|assistant|>\n"
+        images = [x for x in inputs if isinstance(x, Image.Image)]
+        return prompt, images
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        prompt, images = self.make_prompt_and_images(inputs)
+        sampling_params = vllm.SamplingParams(
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
+        )
+
+        inputs = {
+            "prompt": prompt,
+            "multi_modal_data": {"image": images},
+        }
+
+        outputs = self.model.generate(inputs, sampling_params=sampling_params)
+        return outputs[0].outputs[0].text
+
+
+class PixtralModel(EvalModel):
+    engine: str = "mistralai/Pixtral-12B-2409"
+    model: Optional[vllm.LLM] = None
+
+    def load(self):
+        if self.model is None:
+            self.model = vllm.LLM(
+                model=self.engine,
+                trust_remote_code=True,
+                tokenizer_mode="mistral",
+                limit_mm_per_prompt={"image": 100},
+                dtype="auto",
+            )
+
+    @staticmethod
+    def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
+        # Adapted from: https://huggingface.co/mistralai/Pixtral-12B-2409
+        content = []
+        for x in inputs:
+            if isinstance(x, Image.Image):
+                url = f"data:image/png;base64,{convert_image_to_text(x)}"
+                content.append(dict(type="image_url", image_url=dict(url=url)))
+            elif isinstance(x, str):
+                content.append(dict(type="text", text=x))
+            else:
+                raise ValueError
+
+        messages = [dict(role="user", content=content)]
+        return messages
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        messages = self.make_messages(inputs)
+        sampling_params = vllm.SamplingParams(
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
+        )
+
+        outputs = self.model.chat(messages, sampling_params=sampling_params)
+        return outputs[0].outputs[0].text
+
+
 def select_model(model_name: str, **kwargs) -> EvalModel:
     model_map = dict(
         gemini=GeminiModel,
@@ -856,6 +1056,10 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         azure_mini=AzureMiniModel,
         qwen=QwenModel,
         custom_qwen=CustomQwenModel,
+        llava=LlavaModel,
+        phi=PhiModel,
+        pixtral=PixtralModel,
+        intern_small=InternSmallModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -940,6 +1144,7 @@ python modeling.py test_model --model_name gemini-1.5-pro-001
 python modeling.py test_model --model_name reka-core-20240501
 python modeling.py test_model --model_name cogvlm
 python modeling.py test_model --model_name owl (not very good)
+python modeling.py test_model --model_name intern_small 
 
 # Run many outputs
 p modeling.py test_run_many --model_name gemini-1.5-pro-001
@@ -956,6 +1161,10 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name cogvlm
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name owl (bad)
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name qwen
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name custom_qwen
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern_small
+python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name llava
+python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name phi
+python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name pixtral
 
 """
 
