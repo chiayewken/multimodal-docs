@@ -4,7 +4,6 @@ import time
 import warnings
 from typing import Optional, List, Union, Any
 
-import fasttext
 import google.generativeai as genai
 import langdetect
 import requests
@@ -55,9 +54,14 @@ except ImportError:
     VLAsyncEngine = None
 
 
+class DummyFastText:
+    _FastText = None
+
+
 class DummyClass:
     LLM = None
     SamplingParams = None
+    FastText = DummyFastText
 
 
 try:
@@ -65,6 +69,13 @@ try:
 except ImportError:
     vllm = DummyClass()
     print("Cannot import vllm, using DummyClass")
+
+
+try:
+    import fasttext
+except ImportError:
+    fasttext = DummyClass()
+    print("Cannot import fasttext, using DummyClass")
 
 
 def get_environment_key(path: str, name: str) -> str:
@@ -483,20 +494,23 @@ class CogVLMModel(EvalModel):
 
 
 class OneVisionModel(EvalModel):
+    path: str = "models/onevision"
     engine: str = "lmms-lab/llava-onevision-qwen2-7b-ov"
     tokenizer: Optional[PreTrainedTokenizer] = None
     model: Optional[PreTrainedModel] = None
     processor: Optional[ProcessorMixin] = None
-    image_size: int = 384
+    image_size: int = 768
 
     def load(self):
         if self.model is None:
+            path = self.path if os.path.exists(self.path) else self.engine
+            print(dict(load_path=path))
             (
                 self.tokenizer,
                 self.model,
                 self.processor,
                 _,
-            ) = load_pretrained_model(self.engine, None, "llava_qwen")
+            ) = load_pretrained_model(path, None, "llava_qwen")
             self.model.eval()
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
@@ -542,6 +556,7 @@ class HighresOneVisionModel(OneVisionModel):
 
 
 class QwenModel(EvalModel):
+    path: str = "models/qwen"
     engine: str = "Qwen/Qwen2-VL-7B-Instruct"
     model: Optional[Qwen2VLForConditionalGeneration] = None
     processor: Optional[Qwen2VLProcessor] = None
@@ -550,9 +565,11 @@ class QwenModel(EvalModel):
 
     def load(self):
         if self.model is None:
+            path = self.path if os.path.exists(self.path) else self.engine
+            print(dict(load_path=path))
             # noinspection PyTypeChecker
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.engine, torch_dtype="auto", device_map="auto"
+                path, torch_dtype="auto", device_map="auto"
             )
             self.model = self.model.to(self.device).eval()
             self.processor = Qwen2VLProcessor.from_pretrained(self.engine)
@@ -959,14 +976,17 @@ class InternSmallModel(EvalModel):
 
 
 class PhiModel(EvalModel):
+    path: str = "models/phi"
     engine: str = "microsoft/Phi-3.5-vision-instruct"
     model: Optional[vllm.LLM] = None
     image_size: int = 768
 
     def load(self):
         if self.model is None:
+            path = self.path if os.path.exists(self.path) else self.engine
+            print(dict(load_path=path))
             self.model = vllm.LLM(
-                model=self.engine,
+                model=path,
                 trust_remote_code=True,
                 limit_mm_per_prompt={"image": 100},
                 max_model_len=64128,
@@ -1009,14 +1029,17 @@ class PhiModel(EvalModel):
 
 
 class PixtralModel(EvalModel):
+    path: str = "models/pixtral"
     engine: str = "mistralai/Pixtral-12B-2409"
     model: Optional[vllm.LLM] = None
     image_size: int = 768
 
     def load(self):
         if self.model is None:
+            path = self.path if os.path.exists(self.path) else self.engine
+            print(dict(load_path=path))
             self.model = vllm.LLM(
-                model=self.engine,
+                model=path,
                 trust_remote_code=True,
                 tokenizer_mode="mistral",
                 limit_mm_per_prompt={"image": 100},
@@ -1141,6 +1164,12 @@ def test_run_many(
 
 
 """
+# Download locally to save time for DLC servers
+huggingface-cli download Qwen/Qwen2-VL-7B-Instruct --local-dir models/qwen
+huggingface-cli download mistralai/Pixtral-12B-2409 --local-dir models/pixtral
+huggingface-cli download microsoft/Phi-3.5-vision-instruct --local-dir models/phi
+huggingface-cli download lmms-lab/llava-onevision-qwen2-7b-ov --local-dir models/onevision
+
 p modeling.py test_model --model_name gemini
 p modeling.py test_model --model_name openai
 p modeling.py test_model --model_name claude

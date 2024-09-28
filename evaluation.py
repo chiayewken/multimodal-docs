@@ -178,16 +178,12 @@ p analysis.py test_retriever_results outputs/retrieve/test/*.json
 0      outputs/retrieve/test/bge.json  69.3    49.5   64.0  61.2
 3  outputs/retrieve/test/colpali.json  73.5    62.7   73.7  70.1
 
-python evaluation.py test_retriever data/questions/test.json --retriever_name colpali --path outputs/retrieve/test/colpali.json
-90/90 [16:28<00:00, 10.98s/it, score=0.674]
-
-p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-2024-08-06
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name azure
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name claude-3-5-sonnet-20240620
-p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gemini-1.5-pro-001
-p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name intern
-p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name idefics
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gemini-1.5-pro-002
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name qwen
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name onevision
-p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name gpt-4o-mini-2024-07-18
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name pixtral
 
 p evaluation.py run_multi_judge outputs/gpt-4o-2024-08-06/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json
