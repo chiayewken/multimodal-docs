@@ -169,20 +169,14 @@ def run_multi_judge(
 """
 # Evaluate different retrieval methods
 
-python evaluation.py test_retriever data/questions/train.json --retriever_name bm25
-[00:22<00:00, 25.11it/s, score=0.386]
-python evaluation.py test_retriever data/questions/train.json --retriever_name clip
-[05:51<00:00,  1.57it/s, score=0.443]
-python evaluation.py test_retriever data/questions/train.json --retriever_name bge
-[03:21<00:00,  2.75it/s, score=0.526]
-python evaluation.py test_retriever data/questions/train.json --retriever_name bge_finetune
-[03:44<00:00,  2.46it/s, score=0.636]
-python evaluation.py test_retriever data/questions/train.json --retriever_name colpali
-[14:10<00:00,  1.54s/it, score=0.625]
-python evaluation.py test_retriever data/questions/train.json --retriever_name hybrid
-[16:39<00:00,  1.81s/it, score=0.588]
+bash scripts/eval_retrievers.sh 
+p analysis.py test_retriever_results outputs/retrieve/test/*.json
 
-# Retrieve first and generate answers and evaluate with multi-judge
+                                 path  text  figure  table   all
+1     outputs/retrieve/test/bm25.json  52.8    38.1   43.4  44.9
+2     outputs/retrieve/test/clip.json  61.0    42.1   50.1  51.2
+0      outputs/retrieve/test/bge.json  69.3    49.5   64.0  61.2
+3  outputs/retrieve/test/colpali.json  73.5    62.7   73.7  70.1
 
 python evaluation.py test_retriever data/questions/test.json --retriever_name colpali --path outputs/retrieve/test/colpali.json
 90/90 [16:28<00:00, 10.98s/it, score=0.674]
