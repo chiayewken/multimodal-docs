@@ -317,12 +317,14 @@ def download_pdfs(path: str, output_dir: str):
         download_file(url, str(filename) + suffix, overwrite=False)
 
 
-def process_documents(*paths: str, exclude: List[str] = ()):
+def process_documents(*paths: str, exclude: List[str] = (), skip_exist: bool = False):
     # Parse the pdfs into images and convert to json format
     detector = YoloDetector()
     lst = []
     for p in paths:
         if any(Path(p).name.startswith(str(prefix)) for prefix in exclude):
+            continue
+        if skip_exist and Path(p).with_suffix(".json").exists():
             continue
         lst.append(p)
 
@@ -365,7 +367,7 @@ def save_multimodal_document(
 python data_loading.py download_pdfs data/train/metadata.csv data/train
 python data_loading.py download_pdfs data/test/metadata.csv data/test
 python data_loading.py test_yolo_detector
-p data_loading.py process_documents data/train/*.pdf
+p data_loading.py process_documents data/train/*.pdf --skip_exist
 p data_loading.py process_documents data/test/*.pdf
 p data_loading.py process_documents data/test/NYSE*.pdf
 p data_loading.py process_documents data/test/24*.pdf

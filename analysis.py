@@ -700,6 +700,14 @@ def test_product_domain(path: str):
     MultimodalData(samples=samples).save(path)
 
 
+def test_read_pdfs(*paths: str):
+    for p in tqdm(paths):
+        print(p)
+        doc = fitz.open(p)
+        lst = [len(page.get_text()) for page in doc.pages()]
+        print(dict(min=min(lst), max=max(lst), average=sum(lst) / len(lst)))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -761,6 +769,7 @@ p analysis.py test_content_distribution data/test/*.json
 p analysis.py test_content_distribution data/test/NY*.json
 p analysis.py plot_data_chart
 p analysis.py test_product_domain data/questions/test_product.json
+p analysis.py test_read_pdfs data/train/*.pdf
 """
 
 
