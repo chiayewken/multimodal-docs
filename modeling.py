@@ -10,7 +10,6 @@ import langdetect
 import requests
 import tiktoken
 import torch
-import vllm
 from PIL import Image
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -56,6 +55,18 @@ except ImportError:
     VLAsyncEngine = None
 
 
+class DummyClass:
+    LLM = None
+    SamplingParams = None
+
+
+try:
+    import vllm
+except ImportError:
+    vllm = DummyClass()
+    print("Cannot import vllm, using DummyClass")
+
+
 def get_environment_key(path: str, name: str) -> str:
     assert os.path.exists(path), f"Path {path} does not exist"
     load_dotenv(path)
@@ -90,7 +101,7 @@ class EvalModel(BaseModel, arbitrary_types_allowed=True):
 
 class GeminiModel(EvalModel):
     engine: str = "gemini-1.5-pro-001"
-    client: Optional[genai.GenerativeModel]
+    client: Optional[genai.GenerativeModel] = None
 
     def load(self):
         if self.client is None:
@@ -535,6 +546,7 @@ class QwenModel(EvalModel):
     model: Optional[Qwen2VLForConditionalGeneration] = None
     processor: Optional[Qwen2VLProcessor] = None
     device: str = "cuda"
+    image_size: int = 768
 
     def load(self):
         if self.model is None:
@@ -547,11 +559,13 @@ class QwenModel(EvalModel):
             torch.manual_seed(0)
             torch.cuda.manual_seed_all(0)
 
-    @staticmethod
-    def make_messages(inputs: List[Union[str, Image.Image]]):
+    def make_messages(self, inputs: List[Union[str, Image.Image]]) -> List[dict]:
         text = "\n\n".join([x for x in inputs if isinstance(x, str)])
         content = [
-            dict(type="image", image=f"data:image;base64,{convert_image_to_text(x)}")
+            dict(
+                type="image",
+                image=f"data:image;base64,{convert_image_to_text(resize_image(x, self.image_size))}",
+            )
             for x in inputs
             if isinstance(x, Image.Image)
         ]
@@ -947,6 +961,7 @@ class InternSmallModel(EvalModel):
 class PhiModel(EvalModel):
     engine: str = "microsoft/Phi-3.5-vision-instruct"
     model: Optional[vllm.LLM] = None
+    image_size: int = 768
 
     def load(self):
         if self.model is None:
@@ -958,9 +973,8 @@ class PhiModel(EvalModel):
                 dtype="auto",
             )
 
-    @staticmethod
     def make_prompt_and_images(
-        inputs: List[Union[str, Image.Image]]
+        self, inputs: List[Union[str, Image.Image]]
     ) -> tuple[str, list[Image.Image]]:
         # Adapted from: https://huggingface.co/microsoft/Phi-3.5-vision-instruct
         text = "\n\n".join([x for x in inputs if isinstance(x, str)])
@@ -970,7 +984,11 @@ class PhiModel(EvalModel):
             if isinstance(x, Image.Image)
         )
         prompt = f"<|user|>\n{placeholders}\n{text}<|end|>\n<|assistant|>\n"
-        images = [x for x in inputs if isinstance(x, Image.Image)]
+        images = [
+            resize_image(x, self.image_size)
+            for x in inputs
+            if isinstance(x, Image.Image)
+        ]
         return prompt, images
 
     def run(self, inputs: List[Union[str, Image.Image]]) -> str:
@@ -993,6 +1011,7 @@ class PhiModel(EvalModel):
 class PixtralModel(EvalModel):
     engine: str = "mistralai/Pixtral-12B-2409"
     model: Optional[vllm.LLM] = None
+    image_size: int = 768
 
     def load(self):
         if self.model is None:
@@ -1004,13 +1023,12 @@ class PixtralModel(EvalModel):
                 dtype="auto",
             )
 
-    @staticmethod
-    def make_messages(inputs: List[Union[str, Image.Image]]) -> List[dict]:
+    def make_messages(self, inputs: List[Union[str, Image.Image]]) -> List[dict]:
         # Adapted from: https://huggingface.co/mistralai/Pixtral-12B-2409
         content = []
         for x in inputs:
             if isinstance(x, Image.Image):
-                url = f"data:image/png;base64,{convert_image_to_text(x)}"
+                url = f"data:image/png;base64,{convert_image_to_text(resize_image(x, self.image_size))}"
                 content.append(dict(type="image_url", image_url=dict(url=url)))
             elif isinstance(x, str):
                 content.append(dict(type="text", text=x))
@@ -1089,7 +1107,7 @@ def test_model(
 def test_model_on_document(
     path: str,
     name: str,
-    prompt: str = "Can you explain the figures in this document?",
+    prompt: str = "Can you explain the figures in this document in detail?",
     **kwargs,
 ):
     model = select_model(name, **kwargs)
