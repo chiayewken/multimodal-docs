@@ -21,7 +21,7 @@ sentence-transformers==3.0.1
 sentencepiece==0.2.0
 torch==2.4.0
 tqdm==4.66.1
-git+https://github.com/huggingface/transformers@v4.45.0
+transformers==4.45.0
 qwen-vl-utils==0.0.8
 pydantic==2.9.2
 labelImg==1.8.6
