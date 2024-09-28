@@ -305,7 +305,9 @@ def download_pdfs(path: str, output_dir: str):
     print(df.head())
 
     # Check all urls are unique
-    assert df["url"].nunique() == df.shape[0]
+    assert df["url"].nunique() == df.shape[0], df[
+        df.duplicated(subset=["url"], keep=False)
+    ].values
     df["domain"] = df["url"].apply(get_domain)
     print(df["domain"].value_counts())
 

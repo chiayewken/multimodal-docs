@@ -139,11 +139,20 @@ def read_companies(path: str = "data/nyse.txt", seed: int = 0):
             if len(chunk.split("\n")) != 3:
                 continue
             a, b, c = chunk.split("\n")
-            records.append(dict(name=a.strip(), industry=b.strip(), sector=c.strip()))
+            records.append(
+                dict(
+                    name=a.strip(),
+                    search_url=f"https://www.annualreports.com/Companies?search={'+'.join(a.split(',')[0].split())}",
+                    industry=b.strip(),
+                    sector=c.strip(),
+                )
+            )
 
     df = pd.DataFrame(records)
     print(df.shape)
     pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.max_colwidth", None)
     print(df.sample(100, random_state=seed))
 
 
