@@ -1069,8 +1069,12 @@ class PixtralModel(EvalModel):
             max_tokens=self.max_output_tokens,
         )
 
-        outputs = self.model.chat(messages, sampling_params=sampling_params)
-        return outputs[0].outputs[0].text
+        try:
+            outputs = self.model.chat(messages, sampling_params=sampling_params)
+            return outputs[0].outputs[0].text
+        except Exception as e:
+            # OverflowError: Error in model execution: out of range integral type conversion attempted
+            return f"Error: {e}"
 
 
 def select_model(model_name: str, **kwargs) -> EvalModel:
