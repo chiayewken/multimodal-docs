@@ -92,6 +92,22 @@ def prepare_target_and_context(
         return random.choice(images), "\n\n".join(context)
 
 
+def generate_answer(
+    question: str,
+    target: Union[str, Image.Image],
+    context: str,
+    category: str,
+    model: EvalModel,
+) -> str:
+    inputs = [
+        f"Context: {context}",
+        f"Target {category.lower()}:",
+        target,
+        f"Based on the context and target {category.lower()}, answer the following question in 200 words or less: {question}",
+    ]
+    return model.run(inputs)
+
+
 def generate_questions(
     *paths: str,
     path_out: str,
@@ -101,11 +117,12 @@ def generate_questions(
         # "gpt-4o-2024-08-06",
         "azure",
         "claude-3-5-sonnet-20240620",
-        "gemini-1.5-pro-001",
+        "gemini-1.5-pro-002",
     ),
     random_seed: int = 0,
     do_verify: bool = True,
     exclude: List[str] = (),
+    use_answer: bool = False,
 ):
     print(locals())
     random.seed(random_seed)
@@ -170,7 +187,9 @@ def generate_questions(
                         samples.append(
                             MultimodalSample(
                                 question=question,
-                                answer="",
+                                answer=generate_answer(
+                                    question, target, context, mapping[label], model
+                                ),
                                 category=mapping[label],
                                 evidence_pages=[p.number],
                                 source=doc_path,
@@ -194,6 +213,8 @@ p question_generation.py generate_questions data/test/*.json --path_out data/que
 p question_generation.py generate_questions data/test/NYSE*.json --path_out data/questions/test_finance.json --questions_per_doc 6
 p question_generation.py generate_questions data/test/24*.json --path_out data/questions/test_academic.json --questions_per_doc 6
 p question_generation.py generate_questions data/test/*.json --exclude "24,NYSE" --path_out data/questions/test_product.json --questions_per_doc 6
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train.json --questions_per_doc 9 --use_answer
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train2.json --questions_per_doc 9 --use_answer
 """
 
 
