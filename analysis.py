@@ -564,7 +564,8 @@ def test_results(*paths: str):
             info[label] = sum(scores) / len(scores)
         records.append(info)
 
-    print(pd.DataFrame(records).round(2))
+    df = pd.DataFrame(records).sort_values("all").reset_index(drop=True)
+    print(df.round(2))
 
 
 def test_retriever_results(*paths: str):
