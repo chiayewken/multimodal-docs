@@ -171,6 +171,10 @@ def run_multi_judge(
 
 bash scripts/eval_retrievers.sh 
 p analysis.py test_retriever_results outputs/retrieve/test/*.json
+python evaluation.py test_retriever data/questions/train.json --retriever_name colpali --path outputs/retrieve/train/colpali.json
+python evaluation.py test_retriever data/questions/train2.json --retriever_name colpali --path outputs/retrieve/train2/colpali.json
+python evaluation.py test_retriever data/questions/train3.json --retriever_name colpali --path outputs/retrieve/train3/colpali.json
+python evaluation.py test_retriever data/questions/train4.json --retriever_name colpali --path outputs/retrieve/train4/colpali.json
 
                                  path  text  figure  table   all
 1     outputs/retrieve/test/bm25.json  52.8    38.1   43.4  44.9

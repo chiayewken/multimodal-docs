@@ -215,6 +215,8 @@ p question_generation.py generate_questions data/test/24*.json --path_out data/q
 p question_generation.py generate_questions data/test/*.json --exclude "24,NYSE" --path_out data/questions/test_product.json --questions_per_doc 6
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train.json --questions_per_doc 9 --use_answer
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train2.json --questions_per_doc 9 --use_answer
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train3.json --questions_per_doc 9 --use_answer --random_seed 3
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train4.json --questions_per_doc 9 --use_answer --random_seed 4
 """
 
 

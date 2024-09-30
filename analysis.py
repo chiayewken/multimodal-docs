@@ -709,6 +709,19 @@ def test_read_pdfs(*paths: str):
         print(dict(min=min(lst), max=max(lst), average=sum(lst) / len(lst)))
 
 
+def check_duplicate_questions(*paths: str):
+    questions = []
+    evidence = []
+    for p in paths:
+        data = MultimodalData.load(p)
+        for s in data.samples:
+            questions.append(s.question)
+            evidence.append((s.source, s.evidence_pages[0]))
+
+    print(dict(total=len(questions), unique=len(set(questions))))
+    print(dict(total_evidence=len(evidence), unique_evidence=len(set(evidence))))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -771,6 +784,13 @@ p analysis.py test_content_distribution data/test/NY*.json
 p analysis.py plot_data_chart
 p analysis.py test_product_domain data/questions/test_product.json
 p analysis.py test_read_pdfs data/train/*.pdf
+p analysis.py check_duplicate_questions data/questions/train.json
+p analysis.py check_duplicate_questions data/questions/train.json data/questions/train2.json
+p analysis.py check_duplicate_questions data/questions/train.json data/questions/train3.json
+
+TODO
+analyze performance by document lengths
+analyze performance by number of images in retrieval context
 """
 
 
