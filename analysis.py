@@ -570,6 +570,50 @@ def test_results(*paths: str, sort_key="all"):
     print(df.round(2))
 
 
+def length_fn(length: int) -> str:
+    if length <= 1:
+        return "0-1"
+    elif length <= 3:
+        return "2-3"
+    elif length <= 5:
+        return "4-5"
+    elif length <= 7:
+        return "6-7"
+    elif length <= 9:
+        return "8-9"
+    else:
+        return "10+"
+
+
+def test_results_by_multimodal_length(*paths: str):
+    records = []
+
+    for p in paths:
+        if not MultimodalData.load(p).samples[0].judgements:
+            continue
+
+        data = MultimodalData.load(p)
+        documents = data.load_documents()
+
+        for s in tqdm(data.samples):
+            score = sum(j.score for j in s.judgements) / len(s.judgements)
+            doc = documents[s.source]
+            pages = [page for page in doc.pages if page.number in s.retrieved_pages]
+            assert len(pages) == 5
+            length = sum(len(page.get_tables_and_figures()) for page in pages)
+            records.append(dict(path=p, length=length, score=score))
+
+    df = pd.DataFrame(records)
+    print(df.shape)
+    print(df.round(2).sample(10))
+
+    df["length"] = df["length"].apply(length_fn)
+    groups = df.groupby("length").agg({"score": ["mean", "count"]}).reset_index()
+    groups.columns = ["length", "average_score", "group_size"]
+    groups = groups.sort_values("length")
+    print(groups.round(2))
+
+
 def test_retriever_results(*paths: str):
     records = []
 
