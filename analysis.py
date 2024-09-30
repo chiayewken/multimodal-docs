@@ -548,7 +548,7 @@ def content_filter_fn(
         return samples
 
 
-def test_results(*paths: str):
+def test_results(*paths: str, sort_key="all"):
     records = []
     for p in paths:
         info = dict(path=p)
@@ -564,7 +564,9 @@ def test_results(*paths: str):
             info[label] = sum(scores) / len(scores)
         records.append(info)
 
-    df = pd.DataFrame(records).sort_values("all").reset_index(drop=True)
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.max_colwidth", None)
+    df = pd.DataFrame(records).sort_values(sort_key).reset_index(drop=True)
     print(df.round(2))
 
 

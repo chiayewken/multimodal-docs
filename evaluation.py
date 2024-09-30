@@ -206,6 +206,30 @@ p analysis.py test_results outputs/*/colpali/top_k=5.json
 5    outputs/gemini-1.5-pro-002/colpali/top_k=5.json  4.53    4.39   4.55  4.49
 
 ################################################################################
+Analysis on different top-k values (100 test samples)
+
+p data_loading.py sample_questions outputs/retrieve/test/colpali.json outputs/retrieve/test/colpali_sample_100.json --num 100
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name gemini-1.5-pro-002 --top_k 1
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name gemini-1.5-pro-002 --top_k 5
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name gemini-1.5-pro-002 --top_k 10
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name gemini-1.5-pro-002 --top_k 20
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-002/colpali_sample_100/top_k=1.json
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-002/colpali_sample_100/top_k=5.json
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-002/colpali_sample_100/top_k=10.json
+p evaluation.py run_multi_judge outputs/gemini-1.5-pro-002/colpali_sample_100/top_k=20.json
+
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name qwen --top_k 1
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name qwen --top_k 5
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name qwen --top_k 10
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name qwen --top_k 20
+p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=1.json
+p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=5.json
+p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=10.json
+p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=20.json
+
+p analysis.py test_results outputs/*/colpali_sample_100/top_k=*.json --sort_key "path"
+
+################################################################################
 Input the full high-res image intead of extracted texts and table / figure images (to be updated)
 
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name claude-3-5-sonnet-20240620 --use_full_image
