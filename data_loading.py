@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import json
+import random
 import shutil
 from pathlib import Path
 from typing import List, Optional, Union, Dict, Tuple
@@ -268,7 +269,7 @@ class MultimodalData(BaseModel):
 
     def load_documents(self) -> Dict[str, MultimodalDocument]:
         documents = {}
-        for s in self.samples:
+        for s in tqdm(self.samples, desc="load_documents"):
             if s.source not in documents:
                 documents[s.source] = MultimodalDocument.load(s.source)
         return documents
@@ -363,6 +364,104 @@ def save_multimodal_document(
     print(Path(path).absolute())
 
 
+def sample_questions(path_in: str, path_out: str, num: int, seed: int = 0):
+    random.seed(seed)
+    data = MultimodalData.load(path_in)
+    print(dict(path=path_in, samples=len(data.samples)))
+    data.samples = random.sample(data.samples, num)
+    data.save(path_out)
+    print(dict(path=path_out, samples=len(data.samples)))
+
+
+def resize_image(image: Image.Image, max_size: int) -> Image.Image:
+    # Same as modeling.py resize_image
+    width, height = image.size
+    if width <= max_size and height <= max_size:
+        return image
+    if width > height:
+        new_width = max_size
+        new_height = round(height * max_size / width)
+    else:
+        new_height = max_size
+        new_width = round(width * max_size / height)
+    return image.resize((new_width, new_height), Image.LANCZOS)
+
+
+def make_qwen_train_inputs(
+    sample: MultimodalSample, top_k: int
+) -> Tuple[str, List[Image.Image]]:
+    # Adapted from evaluation.py generate_answers
+    doc = MultimodalDocument.load(sample.source)
+    assert sample.retrieved_pages
+    sample.retrieved_pages = sorted(sample.retrieved_pages[:top_k])
+
+    context = []
+    for p in doc.pages:
+        if p.number in sample.retrieved_pages:
+            if p.text:
+                context.append(p.text)
+            context.extend(o.get_image() for o in p.get_tables_and_figures())
+
+    inputs = [
+        "Context:",
+        *context,
+        f"Answer the following question in 200 words or less: {sample.question}",
+    ]
+    text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+    for x in inputs:
+        if isinstance(x, Image.Image):
+            text = "<image>" + text
+
+    images = [resize_image(x, 768) for x in inputs if isinstance(x, Image.Image)]
+    return text, images
+
+
+def save_image(image: Image.Image, folder: str) -> str:
+    image_hash = hashlib.md5(image.tobytes()).hexdigest()
+    path = Path(folder, f"{image_hash}.png")
+    path.parent.mkdir(exist_ok=True, parents=True)
+    image.save(path)
+    return str(path)
+
+
+def make_qwen_data(
+    *paths: str,
+    name: str,
+    path_info: str = "data/dataset_info.json",
+    image_dir: str = "data/qwen_images",
+    limit: int = 0,
+):
+    print(locals())
+    path_out = Path(Path(path_info).parent, name).with_suffix(".json")
+    with open(path_info) as f:
+        info = json.load(f)
+    with open(path_info, "w") as f:
+        info[name] = json.loads(json.dumps(info["mllm_demo"]))  # Copy
+        info[name]["file_name"] = str(path_out.name)
+        json.dump(info, f, indent=2)
+
+    data = []
+    for p in paths:
+        for sample in tqdm(MultimodalData.load(p).samples):
+            if 0 < limit <= len(data):
+                continue
+            text, images = make_qwen_train_inputs(sample, top_k=5)
+            assert sample.answer.strip() != ""
+            messages = [
+                dict(role="user", content=text),
+                dict(role="assistant", content=sample.answer),
+            ]
+
+            image_paths = []
+            for x in images:
+                image_paths.append(save_image(x, image_dir).split("/", maxsplit=1)[1])
+            data.append(dict(messages=messages, images=image_paths))
+
+    with open(path_out, "w") as f:
+        json.dump(data, f, indent=2)
+    print(dict(path_out=path_out, samples=len(data)))
+
+
 """
 python data_loading.py download_pdfs data/train/metadata.csv data/train
 python data_loading.py download_pdfs data/test/metadata.csv data/test
@@ -372,6 +471,7 @@ p data_loading.py process_documents data/test/*.pdf
 p data_loading.py process_documents data/test/NYSE*.pdf
 p data_loading.py process_documents data/test/24*.pdf
 p data_loading.py process_documents data/test/*.pdf --exclude "NYSE,24"
+python data_loading.py make_qwen_data outputs/retrieve/train/colpali.json outputs/retrieve/train2/colpali.json --name qwen_train && llamafactory-cli train scripts/qwen2vl_lora_sft.yaml
 """
 
 

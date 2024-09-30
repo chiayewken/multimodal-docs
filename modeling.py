@@ -562,6 +562,7 @@ class QwenModel(EvalModel):
     processor: Optional[Qwen2VLProcessor] = None
     device: str = "cuda"
     image_size: int = 768
+    lora_path: str = ""
 
     def load(self):
         if self.model is None:
@@ -571,6 +572,11 @@ class QwenModel(EvalModel):
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 path, torch_dtype="auto", device_map="auto"
             )
+
+            if self.lora_path:
+                print("Loading LORA from", self.lora_path)
+                self.model.load_adapter(self.lora_path)
+
             self.model = self.model.to(self.device).eval()
             self.processor = Qwen2VLProcessor.from_pretrained(self.engine)
             torch.manual_seed(0)
@@ -624,14 +630,15 @@ class QwenModel(EvalModel):
 
 
 class CustomQwenModel(QwenModel):
-    engine: str = "models/qwen2_vl_lora_sft"
+    # engine: str = "models/qwen2_vl_lora_sft"
+    lora_path: str = "saves/qwen2_vl-7b/lora/sft"
 
-    def load(self):
-        super().load()
-        # noinspection PyUnresolvedReferences
-        template = self.processor.tokenizer.chat_template
-        if template is not None:
-            self.processor.chat_template = template
+    # def load(self):
+    #     super().load()
+    #     # noinspection PyUnresolvedReferences
+    #     template = self.processor.tokenizer.chat_template
+    #     if template is not None:
+    #         self.processor.chat_template = template
 
 
 class GemmaModel(EvalModel):
