@@ -830,6 +830,31 @@ def check_duplicate_questions(*paths: str):
     print(dict(total_evidence=len(evidence), unique_evidence=len(set(evidence))))
 
 
+def test_question_distribution(*paths, valid_path: str):
+    valid_set = []
+    if valid_path:
+        valid_set = load_valid_questions(valid_path)
+
+    records = []
+    for p in paths:
+        data = MultimodalData.load(p)
+        if valid_path:
+            data.samples = [s for s in data.samples if s.question in valid_set]
+        for sample in data.samples:
+            info = dict(
+                domain=get_domain(sample.source),
+                category=sample.category,
+                question=sample.question,
+            )
+            records.append(info)
+
+    df = pd.DataFrame(records)
+    for group in df.groupby("domain"):
+        print(dict(domain=group[0], total=group[1].shape[0]))
+        for subgroup in group[1].groupby("category"):
+            print(dict(category=subgroup[0], total=subgroup[1].shape[0]))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -900,7 +925,7 @@ p analysis.py show_model_preds outputs/qwen/colpali_sample_100/top_k=5.json data
 p analysis.py test_judge_agreement outputs/qwen/colpali_sample_100/top_k=5.json
 p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
-
+p analysis.py test_question_distribution outputs/azure/colpali/top_k=5.json --valid_path data/annotation/valid_questions.json
 """
 
 
