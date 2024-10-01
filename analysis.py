@@ -2,6 +2,7 @@ import hashlib
 import io
 import random
 import re
+from ast import literal_eval
 from collections import Counter
 from itertools import takewhile
 from pathlib import Path
@@ -20,6 +21,7 @@ from reportlab.platypus import (
     Paragraph,
     PageBreak,
 )
+from scipy import stats
 from sentence_transformers import SentenceTransformer, util
 from tqdm import tqdm
 
@@ -855,6 +857,18 @@ def test_question_distribution(*paths, valid_path: str):
             print(dict(category=subgroup[0], total=subgroup[1].shape[0]))
 
 
+def test_human_agreement(path: str):
+    df = pd.read_excel(path)
+    df = df.dropna(subset=["human_score"])
+    judge_scores = df["judge_scores"].apply(literal_eval).apply(np.mean).tolist()
+    human_scores = df["human_score"].tolist()
+    correlation, p_value = stats.pearsonr(
+        np.array(judge_scores), np.array(human_scores)
+    )
+    print(dict(correlation=correlation, p_value=p_value))
+    breakpoint()
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -926,6 +940,7 @@ p analysis.py test_judge_agreement outputs/qwen/colpali_sample_100/top_k=5.json
 p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
 p analysis.py test_question_distribution outputs/azure/colpali/top_k=5.json --valid_path data/annotation/valid_questions.json
+p analysis.py test_human_agreement data/annotation/score_checking_100_hp.xlsx
 """
 
 
