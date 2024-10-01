@@ -46,3 +46,4 @@ git+https://github.com/hiyouga/LLaMA-Factory@6b62550
 vllm==0.6.2
 ms-swift==2.4.0.post1
 pyav==13.0.0
+setuptools==69.5.1

@@ -1,7 +1,7 @@
 ### Setup
 
 ```
-conda create -n docs python=3.10 -y
+conda create -n docs python=3.10 setuptools=69.5.1 -y
 conda activate docs
 pip install -r requirements.txt
 conda-pack -n docs -o env.tar.gz
