@@ -122,6 +122,7 @@ def run_multi_judge(
         "claude-3-5-sonnet-20240620",
         "gemini-1.5-pro-002",
     ),
+    use_answer: bool = False,
 ):
     parts = [
         "Instruction: You will be given one response to a question based on the multimodal document containing texts, figures, or tables. Your task is to rate the response on one metric. Please make sure you read and understand these instructions carefully. Please keep this document open while reviewing, and refer to it as needed.",
@@ -153,6 +154,8 @@ def run_multi_judge(
             doc = MultimodalDocument.load(sample.source)
             assert len(sample.evidence_pages) == 1
             context = prepare_document_context(sample.evidence_pages[0], doc)
+            if use_answer:
+                sample.pred = sample.answer
             instruction = template.format(question=sample.question, answer=sample.pred)
             inputs = ["Document:", *context, instruction]
 
@@ -188,6 +191,7 @@ p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name qwen
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name onevision
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name pixtral
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name custom_qwen
 
 p evaluation.py run_multi_judge outputs/azure/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json
@@ -195,6 +199,10 @@ p evaluation.py run_multi_judge outputs/gemini-1.5-pro-002/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/qwen/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/pixtral/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/onevision/colpali/top_k=5.json
+p evaluation.py run_multi_judge outputs/custom_qwen/colpali/top_k=5.json
+p evaluation.py run_multi_judge outputs/retrieve/train/colpali_copy.json --use_answer
+p evaluation.py run_multi_judge outputs/swift_qwen/colpali/top_k=5.json
+
 p analysis.py test_results outputs/*/colpali/top_k=5.json
 
                                                 path  text  figure  table   all
@@ -204,6 +212,17 @@ p analysis.py test_results outputs/*/colpali/top_k=5.json
 3                 outputs/azure/colpali/top_k=5.json  4.47    4.33   4.51  4.44
 4  outputs/claude-3-5-sonnet-20240620/colpali/top...  4.52    4.38   4.56  4.49
 5    outputs/gemini-1.5-pro-002/colpali/top_k=5.json  4.53    4.39   4.55  4.49
+
+p analysis.py test_results outputs/*/colpali/top_k=5.json --valid_path data/annotation/valid_questions.json
+
+                         path  text  figure  table   all
+0                   onevision  4.03    3.57   3.30  3.62
+1                 custom_qwen  4.07    3.84   3.49  3.79
+2                        qwen  4.08    3.83   3.62  3.84
+3                     pixtral  4.38    4.20   4.09  4.22
+4                       azure  4.55    4.38   4.53  4.49
+5  claude-3-5-sonnet-20240620  4.57    4.42   4.54  4.51
+6          gemini-1.5-pro-002  4.59    4.43   4.52  4.51
 
 ################################################################################
 Analysis on different top-k values (100 test samples)

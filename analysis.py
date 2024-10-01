@@ -32,6 +32,7 @@ from data_loading import (
     MultimodalObject,
     save_multimodal_document,
     get_domain,
+    load_valid_questions,
 )
 from modeling import select_model
 from reading import get_doc_images
@@ -498,6 +499,9 @@ def test_judge_agreement(*paths: str):
         data = MultimodalData.load(p)
         num_judges = len(data.samples[0].judgements)
         scores = [[] for _ in range(num_judges)]
+        if not data.samples[0].judgements:
+            print(dict(skip=p))
+            continue
 
         for sample in data.samples:
             assert len(sample.judgements) == num_judges
@@ -575,14 +579,21 @@ def remove_common_affix(texts):
     return result
 
 
-def test_results(*paths: str, sort_key="all", limit: int = 0):
+def test_results(*paths: str, sort_key="all", limit: int = 0, valid_path: str = ""):
     records = []
+    valid_set = set()
+    if valid_path:
+        valid_set = load_valid_questions(valid_path)
+        print(dict(valid_question_set=len(valid_set)))
+
     for p in paths:
         info = dict(path=p)
         if not MultimodalData.load(p).samples[0].judgements:
             continue
         for label in ["text", "figure", "table", "all"]:
             data = MultimodalData.load(p)
+            if valid_path:
+                data.samples = [s for s in data.samples if s.question in valid_set]
             if limit > 0:
                 data.samples = data.samples[:limit]
             scores = [
@@ -673,26 +684,47 @@ def show_model_preds(path: str, path_out: str, num_sample: int = 30):
     content = []
     mapping = {}
     random.seed(0)
+    records = []
 
     sample: MultimodalSample
-    for sample in tqdm(random.sample(data.samples, k=num_sample)):
+    if num_sample > 0:
+        data.samples = random.sample(data.samples, k=num_sample)
+    for sample in tqdm(data.samples):
         if sample.source not in mapping:
             mapping[sample.source] = MultimodalDocument.load(sample.source)
         doc = mapping[sample.source]
         pages = [p for p in doc.pages if p.number in sample.evidence_pages]
         assert len(pages) == 1
+        question_id = hash_text(sample.source + sample.question)
         content.extend(
             [
                 f"<b>Source</b> ({sample.category}): {sample.source} (Page {sample.evidence_pages[0]})",
                 f"<b>Question</b> ({sample.annotator}): {sample.question}",
-                f"<b>Model Response</b> ({sample.generator}): {sample.pred}",
+                f"<b>Question ID</b> {question_id}",
+                f"<b>Model Response</b> ({sample.generator}): {sample.pred.replace('<', '>')}",
                 *[f"<b>Judge</b> ({j.name}): {j.score}" for j in sample.judgements],
                 pages[0].get_full_image(),
                 "",
             ]
         )
 
+        records.append(
+            dict(
+                domain=get_domain(sample.source),
+                content_category=sample.category,
+                question_id=question_id,
+                question=sample.question,
+                pred=sample.pred,
+                judge_scores=[j.score for j in sample.judgements],
+                human_score="",
+            )
+        )
+
     save_multimodal_document(content, path_out, pagesize=(595, 595 * 2))
+    df = pd.DataFrame(records)
+    print(df.shape)
+    print(df.head())
+    df.to_excel(Path(path_out).with_suffix(".xlsx"), index=False)
 
 
 def hash_text(text: str) -> str:
@@ -864,9 +896,11 @@ p analysis.py check_duplicate_questions data/questions/train.json
 p analysis.py check_duplicate_questions data/questions/train.json data/questions/train2.json
 p analysis.py check_duplicate_questions data/questions/train.json data/questions/train3.json
 
-TODO
-analyze performance by document lengths
-analyze performance by number of images in retrieval context
+p analysis.py show_model_preds outputs/qwen/colpali_sample_100/top_k=5.json data/annotation/score_checking_100.pdf --num_sample 0
+p analysis.py test_judge_agreement outputs/qwen/colpali_sample_100/top_k=5.json
+p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
+p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
+
 """
 
 

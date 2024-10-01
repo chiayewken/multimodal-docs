@@ -463,12 +463,22 @@ def make_qwen_data(
     print(dict(path_out=path_out, samples=len(data)))
 
 
-def load_excel_annotation(*paths: str):
+def load_excel_annotation(*paths: str, path_out: str):
+    questions = []
     for p in paths:
         df = pd.read_excel(p)
-        columns = [key for key in df.columns if "check" in key.lower() or "?" in key]
-        columns = [key for key in columns if "notes" not in key and "OK?" not in key]
-        print(dict(p=p, columns=len(columns)))
+        df = df.dropna(subset=["valid"])
+        print(dict(p=p, df=df.shape, valid=df["valid"].sum()))
+        questions.extend(df[df["valid"] == 1]["question"].tolist())
+
+    print(dict(questions=len(questions), unique=len(set(questions))))
+    with open(path_out, "w") as f:
+        json.dump(questions, f, indent=2)
+
+
+def load_valid_questions(path: str) -> List[str]:
+    with open(path) as f:
+        return json.load(f)
 
 
 def make_swift_qwen_data(
@@ -543,7 +553,8 @@ data/annotation/academic_cq.xlsx \
 data/annotation/product_cq.xlsx \
 data/annotation/product_mj.xlsx \
 data/annotation/finance_ma.xlsx \
-data/annotation/product_ma.xlsx
+data/annotation/product_ma.xlsx \
+--path_out data/annotation/valid_questions.json
 """
 
 
