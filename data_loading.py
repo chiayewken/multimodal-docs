@@ -413,6 +413,7 @@ def make_qwen_train_inputs(
             text = "<image>" + text
 
     images = [resize_image(x, 768) for x in inputs if isinstance(x, Image.Image)]
+    assert text.count("<image>") == len(images)
     return text, images
 
 
@@ -462,6 +463,53 @@ def make_qwen_data(
     print(dict(path_out=path_out, samples=len(data)))
 
 
+def load_excel_annotation(*paths: str):
+    for p in paths:
+        df = pd.read_excel(p)
+        columns = [key for key in df.columns if "check" in key.lower() or "?" in key]
+        columns = [key for key in columns if "notes" not in key and "OK?" not in key]
+        print(dict(p=p, columns=len(columns)))
+
+
+def make_swift_qwen_data(
+    *paths: str,
+    path_out: str,
+    image_dir: str = "data/qwen_images",
+    limit: int = 0,
+    is_test: bool = False,
+):
+    total = 0
+    Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+
+    with open(path_out, "w") as f:
+        for p in paths:
+            data = MultimodalData.load(p)
+            for sample in tqdm(data.samples, desc=path_out):
+                if 0 < limit <= total:
+                    continue
+
+                # {"query": "<image>55555", "response": "66666", "images": ["image_path"]}
+                assert sample.answer.strip() != "" or is_test
+                text, images = make_qwen_train_inputs(sample, top_k=5)
+                image_paths = [save_image(x, image_dir) for x in images]
+                info = dict(query=text, response=sample.answer, images=image_paths)
+                print(json.dumps(info), file=f)
+                print(info)
+                total += 1
+
+
+def read_swift_qwen_preds(path: str, path_questions: str, path_out: str):
+    with open(path) as f:
+        raw = [json.loads(line) for line in f]
+    data = MultimodalData.load(path_questions)
+    assert len(raw) == len(data.samples)
+    for i, sample in enumerate(data.samples):
+        assert sample.question in raw[i]["query"]
+        sample.pred = raw[i]["response"]
+    data.save(path_out)
+    print(path_out)
+
+
 """
 python data_loading.py download_pdfs data/train/metadata.csv data/train
 python data_loading.py download_pdfs data/test/metadata.csv data/test
@@ -471,7 +519,31 @@ p data_loading.py process_documents data/test/*.pdf
 p data_loading.py process_documents data/test/NYSE*.pdf
 p data_loading.py process_documents data/test/24*.pdf
 p data_loading.py process_documents data/test/*.pdf --exclude "NYSE,24"
+
+################################################################################
+Training data
+
 python data_loading.py make_qwen_data outputs/retrieve/train/colpali.json outputs/retrieve/train2/colpali.json --name qwen_train && llamafactory-cli train scripts/qwen2vl_lora_sft.yaml
+python data_loading.py make_swift_qwen_data outputs/retrieve/train/colpali.json outputs/retrieve/train2/colpali.json --path_out data/swift/train.jsonl && \
+swift sft \
+--max_length 8096 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train.jsonl
+
+python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test.jsonl --is_test && \
+swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311 --val_dataset data/swift/test.jsonl
+python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311/infer_result/20241001-013115.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen/colpali/top_k=5.json
+
+################################################################################
+Annotation data
+
+p data_loading.py load_excel_annotation \
+data/annotation/academic_cq.xlsx \
+data/annotation/product_cq.xlsx \
+data/annotation/product_mj.xlsx \
+data/annotation/finance_ma.xlsx \
+data/annotation/product_ma.xlsx
 """
 
 
