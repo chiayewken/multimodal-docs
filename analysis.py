@@ -3,6 +3,7 @@ import io
 import random
 import re
 from collections import Counter
+from itertools import takewhile
 from pathlib import Path
 from typing import List
 
@@ -548,7 +549,33 @@ def content_filter_fn(
         return samples
 
 
-def test_results(*paths: str, sort_key="all"):
+def remove_common_affix(texts):
+    if not texts:
+        return []
+
+    # Find common prefix
+    def common_prefix(s1, s2):
+        return "".join(
+            c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*[s1, s2]))
+        )
+
+    # Find common suffix
+    def common_suffix(s1, s2):
+        return common_prefix(s1[::-1], s2[::-1])[::-1]
+
+    # Get common prefix and suffix for all strings
+    prefix = texts[0]
+    suffix = texts[0]
+    for s in texts[1:]:
+        prefix = common_prefix(prefix, s)
+        suffix = common_suffix(suffix, s)
+
+    # Remove prefix and suffix from each string
+    result = [s[len(prefix) : -len(suffix) or None] for s in texts]
+    return result
+
+
+def test_results(*paths: str, sort_key="all", limit: int = 0):
     records = []
     for p in paths:
         info = dict(path=p)
@@ -556,6 +583,8 @@ def test_results(*paths: str, sort_key="all"):
             continue
         for label in ["text", "figure", "table", "all"]:
             data = MultimodalData.load(p)
+            if limit > 0:
+                data.samples = data.samples[:limit]
             scores = [
                 judge.score
                 for s in content_filter_fn(data.samples, label)
@@ -567,6 +596,7 @@ def test_results(*paths: str, sort_key="all"):
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_colwidth", None)
     df = pd.DataFrame(records).sort_values(sort_key).reset_index(drop=True)
+    df["path"] = remove_common_affix(df["path"].tolist())
     print(df.round(2))
 
 
