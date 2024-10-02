@@ -545,6 +545,40 @@ python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json -
 swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311 --val_dataset data/swift/test.jsonl
 python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311/infer_result/20241001-013115.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen/colpali/top_k=5.json
 
+#### 10k training data
+
+# Onevision (OOM immediately)
+
+swift sft \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type llava-onevision-qwen2-7b-ov \
+--sft_type lora \
+--dataset data/swift/train_10k.jsonl
+
+# Pixtral (OOM after 1h42m)
+
+swift sft \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type pixtral-12b \
+--sft_type lora \
+--dataset data/swift/train_10k.jsonl
+
+# Qwen (can train)
+
+swift sft \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_10k.jsonl
+
+swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 --val_dataset data/swift/test.jsonl
+python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623/infer_result/20241002-013038.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen_10k/colpali/top_k=5.json
+
 ################################################################################
 Annotation data
 

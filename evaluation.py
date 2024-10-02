@@ -202,6 +202,7 @@ p evaluation.py run_multi_judge outputs/onevision/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/custom_qwen/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/retrieve/train/colpali_copy.json --use_answer
 p evaluation.py run_multi_judge outputs/swift_qwen/colpali/top_k=5.json
+p evaluation.py run_multi_judge outputs/swift_qwen_10k/colpali/top_k=5.json
 
 p analysis.py test_results outputs/*/colpali/top_k=5.json
 

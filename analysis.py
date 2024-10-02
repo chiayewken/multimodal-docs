@@ -551,6 +551,12 @@ def content_filter_fn(
         return [s for s in samples if "figure" in s.category]
     elif category == "table":
         return [s for s in samples if "table" in s.category]
+    elif category == "academic":
+        return [s for s in samples if category in get_domain(s.source).lower()]
+    elif category == "finance":
+        return [s for s in samples if "report" in get_domain(s.source).lower()]
+    elif category == "product":
+        return [s for s in samples if "technical" in get_domain(s.source).lower()]
     else:
         return samples
 
@@ -592,7 +598,15 @@ def test_results(*paths: str, sort_key="all", limit: int = 0, valid_path: str = 
         info = dict(path=p)
         if not MultimodalData.load(p).samples[0].judgements:
             continue
-        for label in ["text", "figure", "table", "all"]:
+        for label in [
+            "academic",
+            "product",
+            "finance",
+            "text",
+            "figure",
+            "table",
+            "all",
+        ]:
             data = MultimodalData.load(p)
             if valid_path:
                 data.samples = [s for s in data.samples if s.question in valid_set]
@@ -608,6 +622,7 @@ def test_results(*paths: str, sort_key="all", limit: int = 0, valid_path: str = 
 
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_colwidth", None)
+    pd.set_option("display.width", None)
     df = pd.DataFrame(records).sort_values(sort_key).reset_index(drop=True)
     df["path"] = remove_common_affix(df["path"].tolist())
     print(df.round(2))
