@@ -192,6 +192,7 @@ p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name onevision
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name pixtral
 p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name custom_qwen
+p evaluation.py generate_answers outputs/retrieve/test/colpali.json --retriever_name colpali --generator_name idefics
 
 p evaluation.py run_multi_judge outputs/azure/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/claude-3-5-sonnet-20240620/colpali/top_k=5.json
@@ -203,6 +204,7 @@ p evaluation.py run_multi_judge outputs/custom_qwen/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/retrieve/train/colpali_copy.json --use_answer
 p evaluation.py run_multi_judge outputs/swift_qwen/colpali/top_k=5.json
 p evaluation.py run_multi_judge outputs/swift_qwen_10k/colpali/top_k=5.json
+p evaluation.py run_multi_judge outputs/swift_qwen_10k_single_page/colpali/top_k=5.json
 
 p analysis.py test_results outputs/*/colpali/top_k=5.json
 
@@ -248,6 +250,21 @@ p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=10.json
 p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=20.json
 
 p analysis.py test_results outputs/*/colpali_sample_100/top_k=*.json --sort_key "path"
+
+################################################################################
+Alternative settings (text-only and full-image)
+
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name text_only_azure
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name text_only_qwen
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name azure --use_full_image
+p evaluation.py generate_answers outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name highres_qwen --use_full_image
+
+p evaluation.py run_multi_judge outputs/text_only_azure/colpali_sample_100/top_k=5.json
+p evaluation.py run_multi_judge outputs/text_only_qwen/colpali_sample_100/top_k=5.json
+p evaluation.py run_multi_judge outputs/azure/colpali_sample_100/top_k=5_full_image.json
+p evaluation.py run_multi_judge outputs/highres_qwen/colpali_sample_100/top_k=5_full_image.json
+
+p analysis.py test_results outputs/*qwen/colpali_sample_100/top_k=5*.json 
 
 ################################################################################
 Input the full high-res image intead of extracted texts and table / figure images (to be updated)

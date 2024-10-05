@@ -227,6 +227,11 @@ class AzureModel(OpenAIModel):
             )
 
 
+class TextOnlyAzureModel(AzureModel):
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        return super().run([x for x in inputs if isinstance(x, str)])
+
+
 class AzureMiniModel(AzureModel):
     engine: str = "gpt-4o-mini"
 
@@ -627,6 +632,15 @@ class QwenModel(EvalModel):
             clean_up_tokenization_spaces=False,
         )
         return output_text[0]
+
+
+class TextOnlyQwenModel(QwenModel):
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        return super().run([x for x in inputs if isinstance(x, str)])
+
+
+class HighresQwenModel(QwenModel):
+    image_size: int = 1024
 
 
 class CustomQwenModel(QwenModel):
@@ -1112,6 +1126,9 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         phi=PhiModel,
         pixtral=PixtralModel,
         intern_small=InternSmallModel,
+        text_only_azure=TextOnlyAzureModel,
+        text_only_qwen=TextOnlyQwenModel,
+        highres_qwen=HighresQwenModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
