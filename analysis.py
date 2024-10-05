@@ -884,6 +884,60 @@ def test_human_agreement(path: str):
     breakpoint()
 
 
+def test_pairwise_judge_agreement(path: str):
+    df = pd.read_excel(path)
+    df = df.dropna(subset=["human_score"])
+    judge_scores = df["judge_scores"].apply(literal_eval).tolist()
+    list1 = [row[0] for row in judge_scores]
+    list2 = [row[1] for row in judge_scores]
+    list3 = [row[2] for row in judge_scores]
+
+    values = []
+    for scores_1 in [list1, list2, list3]:
+        for scores_2 in [list1, list2, list3]:
+            if scores_1 == scores_2:
+                continue
+            correlation, p_value = stats.pearsonr(scores_1, scores_2)
+            values.append(correlation)
+            print(dict(correlation=correlation, p_value=p_value))
+    print(dict(pairs=len(values)))
+    print(dict(average_correlation=np.mean(values)))
+
+
+def compare_qwen_answers(path_a: str, path_b: str, path_out: str):
+    data_a = MultimodalData.load(path_a)
+    data_b = MultimodalData.load(path_b)
+    assert len(data_a.samples) == len(data_b.samples)
+
+    total = 0
+    content = []
+    for a, b in tqdm(list(zip(data_a.samples, data_b.samples))):
+        score_a = round(np.mean([j.score for j in a.judgements]), 2)
+        score_b = round(np.mean([j.score for j in b.judgements]), 2)
+        assert a.question == b.question
+        page_numbers = sorted(b.retrieved_pages[:5])
+
+        if score_b - score_a > 1.0 and b.evidence_pages[0] in page_numbers:
+            doc = MultimodalDocument.load(b.source)
+            pages = [p for p in doc.pages if p.number in page_numbers]
+            content.extend(
+                [
+                    f"<b>Source</b> ({b.category}): {b.source} (Page {b.evidence_pages[0]})",
+                    f"<b>Retrieved Pages</b>: {b.retrieved_pages}",
+                    f"<b>Question</b> ({b.annotator}): {b.question}",
+                    f"<b>Answer A</b> ({score_a}): {a.pred}",
+                    f"<b>Answer B</b> ({score_b}): {b.pred}",
+                    *[page.get_full_image() for page in pages],
+                    "",
+                ]
+            )
+            total += 1
+            if total > 20:
+                break
+
+    save_multimodal_document(content, path_out, pagesize=(595, 595 * 2))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -956,6 +1010,8 @@ p analysis.py test_judge_self_bias outputs/*/colpali/top_k=5.json
 p analysis.py test_judge_agreement outputs/*/colpali/top_k=5.json
 p analysis.py test_question_distribution outputs/azure/colpali/top_k=5.json --valid_path data/annotation/valid_questions.json
 p analysis.py test_human_agreement data/annotation/score_checking_100_hp.xlsx
+p analysis.py test_pairwise_judge_agreement data/annotation/score_checking_100_hp.xlsx
+p analysis.py compare_qwen_answers outputs/qwen/colpali/top_k=5.json outputs/swift_qwen_10k/colpali/top_k=5.json --path_out renders/qwen_vs_ours.pdf
 """
 
 
