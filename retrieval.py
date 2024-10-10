@@ -10,25 +10,13 @@ from typing import Optional, List, Dict, OrderedDict
 import numpy as np
 import torch
 from FlagEmbedding import BGEM3FlagModel
-from PIL import Image
-from colpali_engine.models.paligemma_colbert_architecture import ColPali
-from colpali_engine.trainer.retrieval_evaluator import CustomEvaluator
-from colpali_engine.utils.colpali_processing_utils import (
-    process_images,
-    process_queries,
-)
+from colpali_engine.models import ColPali, ColPaliProcessor, ColQwen2, ColQwen2Processor
 from fire import Fire
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 from sentence_transformers.util import cos_sim
-from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import (
-    PaliGemmaProcessor,
-    AutoModel,
-    PreTrainedModel,
-    AutoProcessor,
-)
+from transformers import AutoModel, PreTrainedModel
 
 from data_loading import MultimodalDocument, MultimodalData, MultimodalPage
 
@@ -237,83 +225,72 @@ class BGEM3Retriever(MultimodalRetriever):
 
 class ColpaliRetriever(MultimodalRetriever):
     path: str = "vidore/colpali-v1.2"
-    base: str = "vidore/colpaligemma-3b-pt-448-base"
     model: Optional[ColPali] = None
-    processor: Optional[PaliGemmaProcessor] = None
+    processor: Optional[ColPaliProcessor] = None
     device: str = "cuda"
-    cache: OrderedDict[str, list] = CollectionsOrderedDict()
+    cache: OrderedDict[str, torch.Tensor] = CollectionsOrderedDict()
 
     def load(self):
         if self.model is None:
             self.model = ColPali.from_pretrained(
-                self.base, torch_dtype=torch.bfloat16, device_map=self.device
+                self.path, torch_dtype=torch.bfloat16, device_map=self.device
             )
-            self.model.load_adapter(self.path)
             self.model = self.model.eval()
-            self.processor = AutoProcessor.from_pretrained(self.path)
+            self.processor = ColPaliProcessor.from_pretrained(self.path)
 
-    def encode_document(self, doc: MultimodalDocument) -> List[torch.Tensor]:
+    def encode_document(self, doc: MultimodalDocument) -> torch.Tensor:
         hash_id = hashlib.md5(doc.json().encode()).hexdigest()
         if len(self.cache) > 100:
             self.cache.popitem(last=False)
         if hash_id not in self.cache:
             images = [page.get_full_image() for page in doc.pages]
-            # noinspection PyTypeChecker
-            dataloader = DataLoader(
-                images,
-                batch_size=4,
-                shuffle=False,
-                collate_fn=lambda x: process_images(self.processor, x),
-            )
-            ds = []
-            for batch_doc in tqdm(dataloader, desc="Encoding document"):
+            batch_size = 8
+
+            ds: List[torch.Tensor] = []
+            for i in tqdm(range(0, len(images), batch_size), desc="Encoding document"):
+                batch = self.processor.process_images(images[i : i + batch_size])
                 with torch.no_grad():
-                    batch_doc = {k: v.to(self.device) for k, v in batch_doc.items()}
-                    embeddings_doc = self.model(**batch_doc)
-                ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
-            self.cache[hash_id] = ds
+                    # noinspection PyTypeChecker
+                    ds.append(self.model(**batch.to(self.device)).cpu())
 
+            lengths = [x.shape[1] for x in ds]
+            if len(set(lengths)) != 1:
+                print("Warning: Inconsistent lengths from colqwen", set(lengths))
+                assert "colqwen" in self.path
+                for i, x in enumerate(ds):
+                    ds[i] = x[:, : min(lengths), :]
+            self.cache[hash_id] = torch.cat(ds)
         return self.cache[hash_id]
-
-    @staticmethod
-    def compute_scores(qs: List[torch.Tensor], ds: List[torch.Tensor]) -> List[float]:
-        evaluator = CustomEvaluator(is_multi_vector=True)
-        if evaluator.is_multi_vector:
-            scores = evaluator.evaluate_colbert(qs, ds)
-        else:
-            scores = evaluator.evaluate_biencoder(qs, ds)
-
-        assert scores.shape[0] == len(qs)
-        return scores.to(torch.float32).cpu().squeeze().tolist()
 
     def run(self, query: str, doc: MultimodalDocument) -> MultimodalDocument:
         doc = doc.copy(deep=True)
         self.load()
         ds = self.encode_document(doc)
+        with torch.no_grad():
+            # noinspection PyTypeChecker
+            qs = self.model(**self.processor.process_queries([query]).to(self.device))
 
         # noinspection PyTypeChecker
-        dataloader = DataLoader(
-            [query],
-            batch_size=1,
-            shuffle=False,
-            collate_fn=lambda x: process_queries(
-                self.processor, x, Image.new("RGB", (448, 448), (255, 255, 255))
-            ),
-        )
-
-        qs = []
-        for batch_query in dataloader:
-            with torch.no_grad():
-                batch_query = {k: v.to(self.device) for k, v in batch_query.items()}
-                embeddings_query = self.model(**batch_query)
-            qs.extend(list(torch.unbind(embeddings_query.to("cpu"))))
-
-        scores = self.compute_scores(qs, ds)
+        scores = self.processor.score_multi_vector(qs.cpu(), ds).squeeze()
         assert len(scores) == len(doc.pages)
         for i, page in enumerate(doc.pages):
-            page.score = float(scores[i])
+            page.score = scores[i].item()
 
         return doc
+
+
+class ColqwenRetriever(ColpaliRetriever):
+    path: str = "vidore/colqwen2-v0.1"
+    model: Optional[ColQwen2] = None
+    processor: Optional[ColQwen2Processor] = None
+
+    def load(self):
+        if self.model is None:
+            self.model = ColQwen2.from_pretrained(
+                self.path, torch_dtype=torch.bfloat16, device_map=self.device
+            )
+            self.model = self.model.eval()
+            self.processor = ColQwen2Processor.from_pretrained(self.path)
 
 
 class HybridRetriever(MultimodalRetriever):
@@ -352,6 +329,8 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
         return HybridRetriever(**kwargs)
     elif name == "bge_finetune":
         return BGEM3Retriever(path="outputs/finetune/bge")
+    elif name == "colqwen":
+        return ColqwenRetriever(**kwargs)
     raise KeyError(name)
 
 
