@@ -388,7 +388,7 @@ def resize_image(image: Image.Image, max_size: int) -> Image.Image:
 
 
 def make_qwen_train_inputs(
-    sample: MultimodalSample, top_k: int
+    sample: MultimodalSample, top_k: int, use_gold_page_only: bool = False
 ) -> Tuple[str, List[Image.Image]]:
     # Adapted from evaluation.py generate_answers
     doc = MultimodalDocument.load(sample.source)
@@ -397,6 +397,10 @@ def make_qwen_train_inputs(
 
     context = []
     for p in doc.pages:
+        sample = sample.copy(deep=True)
+        if use_gold_page_only:
+            sample.retrieved_pages = sample.evidence_pages
+            assert len(sample.evidence_pages) == 1
         if p.number in sample.retrieved_pages:
             if p.text:
                 context.append(p.text)
@@ -421,7 +425,8 @@ def save_image(image: Image.Image, folder: str) -> str:
     image_hash = hashlib.md5(image.tobytes()).hexdigest()
     path = Path(folder, f"{image_hash}.png")
     path.parent.mkdir(exist_ok=True, parents=True)
-    image.save(path)
+    if not path.exists():
+        image.save(path)
     return str(path)
 
 
@@ -487,6 +492,7 @@ def make_swift_qwen_data(
     image_dir: str = "data/qwen_images",
     limit: int = 0,
     is_test: bool = False,
+    use_gold_page_only: bool = False,
 ):
     total = 0
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
@@ -500,7 +506,9 @@ def make_swift_qwen_data(
 
                 # {"query": "<image>55555", "response": "66666", "images": ["image_path"]}
                 assert sample.answer.strip() != "" or is_test
-                text, images = make_qwen_train_inputs(sample, top_k=5)
+                text, images = make_qwen_train_inputs(
+                    sample, top_k=5, use_gold_page_only=use_gold_page_only
+                )
                 image_paths = [save_image(x, image_dir) for x in images]
                 info = dict(query=text, response=sample.answer, images=image_paths)
                 print(json.dumps(info), file=f)
@@ -578,6 +586,26 @@ swift sft \
 
 swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 --val_dataset data/swift/test.jsonl
 python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623/infer_result/20241002-013038.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen_10k/colpali/top_k=5.json
+
+# Ablation: Training single-page, testing multi-page
+python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_single_page.jsonl --use_gold_page_only
+python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test_single_page.jsonl --is_test
+python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali_sample_100.json --path_out data/swift/test_sample_100_single_page.jsonl --is_test
+
+swift sft \
+--eval_steps 9999 \
+--save_steps 100 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_single_page.jsonl
+
+swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v17-20241002-173257/checkpoint-623 --val_dataset data/swift/test_sample_100_single_page.jsonl
+python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v17-20241002-173257/checkpoint-623/infer_result/20241011-162621.jsonl outputs/retrieve/test/colpali_sample_100.json outputs/swift_qwen_10k_single_page/colpali/top_k=5.json
+python evaluation.py run_multi_judge outputs/swift_qwen_10k_single_page/colpali/top_k=5.json
+# swift_qwen_10k_single_page      3.96     3.99     3.95  4.20    4.02   3.65  3.96
 
 ################################################################################
 Annotation data
