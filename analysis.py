@@ -672,7 +672,7 @@ def test_results_by_multimodal_length(*paths: str):
     print(groups.round(2))
 
 
-def test_retriever_results(*paths: str):
+def test_retriever_results(*paths: str, metric="mrr"):
     records = []
 
     for p in paths:
@@ -682,18 +682,23 @@ def test_retriever_results(*paths: str):
             scores = []
 
             for sample in content_filter_fn(data.samples, label):
-                # Calculate MRR score
                 sorted_ids = sample.retrieved_pages
                 assert len(sample.evidence_pages) == 1
                 rank = sorted_ids.index(sample.evidence_pages[0])
-                scores.append(1 / (rank + 1))
-            info[label] = sum(scores) / len(scores) * 100
+                if metric == "mrr":
+                    scores.append(1 / (rank + 1))
+                elif metric == "top-5-recall":
+                    scores.append(int(rank < 5))
+                else:
+                    raise ValueError(f"Invalid metric: {metric}")
 
+            info[label] = sum(scores) / len(scores) * 100
         records.append(info)
 
     df = pd.DataFrame(records)
     df = df.sort_values("all")
     print(df.round(1))
+    print(dict(metric=metric))
 
 
 def show_model_preds(path: str, path_out: str, num_sample: int = 30):
