@@ -693,11 +693,11 @@ class GemmaModel(EvalModel):
 
 
 class IdeficsModel(EvalModel):
-    engine: str = "TIGER-Lab/Mantis-8B-Idefics2"  # Optimized for long interleaved cases
+    engine: str = "models/idefics"  # Optimized for long interleaved cases
     model: Optional[Idefics2ForConditionalGeneration] = None
     processor: Optional[Idefics2Processor] = None
     device: str = "cuda"
-    image_size: int = 384
+    image_size: int = 768
 
     def load(self):
         if self.model is None:
@@ -1197,6 +1197,7 @@ huggingface-cli download Qwen/Qwen2-VL-7B-Instruct --local-dir models/qwen
 huggingface-cli download mistralai/Pixtral-12B-2409 --local-dir models/pixtral
 huggingface-cli download microsoft/Phi-3.5-vision-instruct --local-dir models/phi
 huggingface-cli download lmms-lab/llava-onevision-qwen2-7b-ov --local-dir models/onevision
+huggingface-cli download TIGER-Lab/Mantis-8B-Idefics2 --local-dir models/idefics
 
 p modeling.py test_model --model_name gemini
 p modeling.py test_model --model_name openai
