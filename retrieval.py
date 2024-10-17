@@ -171,10 +171,16 @@ class BGEM3Retriever(MultimodalRetriever):
                 doc = doc_map[sample.source]
                 page_map = {p.number: p.text for p in doc.pages}
                 pool = set(j for i in sample.evidence_pages for j in [i - 1, i, i + 1])
+
+                k = 10  # number of negatives
+                if len(set(p.number for p in doc.pages) - pool) < k:
+                    print(dict(skip_due_to_few_pages=doc.pages[0].source))
+                    continue
+
                 info = dict(
                     query=sample.question,
                     pos=[page_map[i] for i in sample.evidence_pages],
-                    neg=random.sample(set(p.number for p in doc.pages) - pool, k=10),
+                    neg=random.sample(set(p.number for p in doc.pages) - pool, k=k),
                 )
                 print(json.dumps(info), file=f)
 
@@ -206,7 +212,7 @@ class BGEM3Retriever(MultimodalRetriever):
             "--query_max_len",
             "64",
             "--passage_max_len",
-            "256",
+            "512",
             "--train_group_size",
             "2",
             "--negatives_cross_device",
@@ -217,6 +223,8 @@ class BGEM3Retriever(MultimodalRetriever):
             "--unified_finetuning",
             "True",
             "--use_self_distill",
+            "True",
+            "--overwrite_output_dir",
             "True",
         ]
 
@@ -328,7 +336,7 @@ def select_retriever(name: str, **kwargs) -> MultimodalRetriever:
     elif name == "hybrid":
         return HybridRetriever(**kwargs)
     elif name == "bge_finetune":
-        return BGEM3Retriever(path="outputs/finetune/bge")
+        return BGEM3Retriever(path="outputs/bge_finetune")
     elif name == "colqwen":
         return ColqwenRetriever(**kwargs)
     raise KeyError(name)
@@ -352,14 +360,18 @@ def test_retriever(path: str = "data/test/NYSE_FBHS_2023.json", name: str = "cli
         print("#" * 80)
 
 
-def run_finetune(name: str, data_path: str, output_dir: str, **kwargs):
-    model = select_retriever(name, **kwargs)
-    data = MultimodalData.load(data_path)
+def run_finetune(*data_paths: str, retriever_name: str, output_dir: str, **kwargs):
+    model = select_retriever(retriever_name, **kwargs)
+    samples = []
+    for path in data_paths:
+        samples.extend(MultimodalData.load(path).samples)
+    data = MultimodalData(samples=samples)
+    print(dict(samples=len(data.samples)))
     model.finetune(data, output_dir)
 
 
 """
-p retrieval.py run_finetune bge data/questions/train.json outputs/finetune/bge
+p retrieval.py run_finetune data/questions/train*.json --retriever_name bge --output_dir outputs/bge_finetune
 """
 
 if __name__ == "__main__":
