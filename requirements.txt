@@ -42,7 +42,6 @@ krippendorff==0.7.0
 #lmdeploy[all]==0.6.0a0
 xformers==0.0.27.post2
 bitsandbytes==0.43.3
-git+https://github.com/hiyouga/LLaMA-Factory@6b62550
 vllm==0.6.2
 git+https://github.com/modelscope/ms-swift.git@45354f7
 pyav==13.0.0
