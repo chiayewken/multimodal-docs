@@ -52,15 +52,23 @@ def generate_answers(
     output_dir: str = "outputs",
     top_k: int = 5,
     use_full_image: bool = False,
+    remove_gold_page: bool = False,
+    output_suffix: str = "",
 ):
     generator = select_model(generator_name)
     data = MultimodalData.load(data_path)
     path_out = Path(output_dir, generator_name, retriever_name, f"{top_k=}.json")
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+
     if use_full_image:
-        path_out = path_out.with_name(
-            path_out.name.replace(".json", "_full_image.json")
-        )
+        new_name = path_out.name.replace(".json", "_full_image.json")
+        path_out = path_out.with_name(new_name)
+    if remove_gold_page:
+        new_name = path_out.name.replace(".json", "_remove_gold.json")
+        path_out = path_out.with_name(new_name)
+    if output_suffix:
+        new_name = path_out.name.replace(".json", f"_{output_suffix}.json")
+        path_out = path_out.with_name(new_name)
 
     with open(path_out, "w") as f:
         for sample in tqdm(data.samples, desc=str(path_out)):
@@ -71,6 +79,8 @@ def generate_answers(
             context = []
             for p in doc.pages:
                 if p.number in sample.retrieved_pages:
+                    if remove_gold_page and p.number in sample.evidence_pages:
+                        continue
                     if p.text:
                         context.append(p.text)
                     context.extend(o.get_image() for o in p.get_tables_and_figures())
@@ -290,6 +300,15 @@ p analysis.py test_results outputs/*/colpali/top_k=5_full_image.json
 3  outputs/highres_idefics/colpali/top_k=5_full_i...  2.80    2.69   2.37  2.62
 4  outputs/highres_intern/colpali/top_k=5_full_im...  3.74    3.23   2.88  3.29
 5  outputs/highres_onevision/colpali/top_k=5_full...  3.31    2.93   3.07  3.10
+
+################################################################################
+Generate negative answers by removing gold page if in retrieved
+
+p evaluation.py generate_answers outputs/retrieve/train/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train
+p evaluation.py generate_answers outputs/retrieve/train2/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train2
+p evaluation.py generate_answers outputs/retrieve/train3/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train3
+p evaluation.py generate_answers outputs/retrieve/train4/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train4
+p evaluation.py run_multi_judge outputs/qwen/colpali/top_k=5_remove_gold_train.json -> 2.8 which is expected as these are deliberate bad predictions without gold page
 
 """
 
