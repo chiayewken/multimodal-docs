@@ -388,10 +388,19 @@ def resize_image(image: Image.Image, max_size: int) -> Image.Image:
 
 
 def make_qwen_train_inputs(
-    sample: MultimodalSample, top_k: int, use_gold_page_only: bool = False
+    sample: MultimodalSample,
+    top_k: int,
+    use_gold_page_only: bool = False,
+    documents: dict = None,
 ) -> Tuple[str, List[Image.Image]]:
     # Adapted from evaluation.py generate_answers
-    doc = MultimodalDocument.load(sample.source)
+    if documents is None:
+        doc = MultimodalDocument.load(sample.source)
+    else:
+        if sample.source not in documents:
+            documents[sample.source] = MultimodalDocument.load(sample.source)
+        doc = documents[sample.source]
+
     assert sample.retrieved_pages
     sample.retrieved_pages = sorted(sample.retrieved_pages[:top_k])
 
@@ -493,30 +502,57 @@ def make_swift_qwen_data(
     limit: int = 0,
     is_test: bool = False,
     use_gold_page_only: bool = False,
+    use_pred_as_reject_response: bool = False,
 ):
+    print(locals())
     total = 0
     Path(path_out).parent.mkdir(exist_ok=True, parents=True)
+    all_samples = [s for p in paths for s in MultimodalData.load(p).samples]
+    documents = {}
 
     with open(path_out, "w") as f:
-        for p in paths:
-            data = MultimodalData.load(p)
-            for sample in tqdm(data.samples, desc=path_out):
-                if 0 < limit <= total:
-                    continue
-
+        for sample in tqdm(all_samples, desc=path_out):
+            if not (0 < limit <= total):
                 # {"query": "<image>55555", "response": "66666", "images": ["image_path"]}
                 assert sample.answer.strip() != "" or is_test
                 text, images = make_qwen_train_inputs(
-                    sample, top_k=5, use_gold_page_only=use_gold_page_only
+                    sample,
+                    top_k=5,
+                    use_gold_page_only=use_gold_page_only,
+                    documents=documents,
                 )
+
                 image_paths = [save_image(x, image_dir) for x in images]
                 info = dict(query=text, response=sample.answer, images=image_paths)
+                if use_pred_as_reject_response:
+                    assert sample.pred.strip() != ""
+                    info["rejected_response"] = sample.pred
+
                 print(json.dumps(info), file=f)
-                print(info)
+                # print(info)
                 total += 1
 
 
+def get_latest_infer_file(path: str) -> str:
+    # eg output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 -> .../checkpoint-623/infer_result/20241002-013038.jsonl
+    assert Path(path).name.startswith("checkpoint")
+    output = ""
+    latest_date = 0
+    latest_time = 0
+
+    for p in Path(path).glob("infer_result/*.jsonl"):
+        date, time = [int(x) for x in p.stem.split("-")]
+        if date > latest_date or (date == latest_date and time > latest_time):
+            output = str(p)
+            latest_date, latest_time = date, time
+
+    print(dict(latest_infer_file=output))
+    return output
+
+
 def read_swift_qwen_preds(path: str, path_questions: str, path_out: str):
+    if not path.endswith(".jsonl"):
+        path = get_latest_infer_file(path)
     with open(path) as f:
         raw = [json.loads(line) for line in f]
     data = MultimodalData.load(path_questions)
@@ -541,40 +577,13 @@ p data_loading.py process_documents data/test/*.pdf --exclude "NYSE,24"
 ################################################################################
 Training data
 
-python data_loading.py make_qwen_data outputs/retrieve/train/colpali.json outputs/retrieve/train2/colpali.json --name qwen_train && llamafactory-cli train scripts/qwen2vl_lora_sft.yaml
-python data_loading.py make_swift_qwen_data outputs/retrieve/train/colpali.json outputs/retrieve/train2/colpali.json --path_out data/swift/train.jsonl && \
-swift sft \
---max_length 8096 \
---model_type qwen2-vl-7b-instruct \
---sft_type lora \
---dataset data/swift/train.jsonl
+python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_10k.jsonl
+python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_18k.jsonl
 
-python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test.jsonl --is_test && \
-swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311 --val_dataset data/swift/test.jsonl
-python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v2-20240930-202533/checkpoint-311/infer_result/20241001-013115.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen/colpali/top_k=5.json
+python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test.jsonl --is_test
+python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali_sample_100.json --path_out data/swift/test_sample_100.jsonl --is_test 
 
-#### 10k training data
-
-# Onevision (OOM immediately)
-
-swift sft \
---max_length 6144 \
---lora_rank 64 \
---model_type llava-onevision-qwen2-7b-ov \
---sft_type lora \
---dataset data/swift/train_10k.jsonl
-
-# Pixtral (OOM after 1h42m)
-
-swift sft \
---rescale_image 240000 \
---max_length 6144 \
---lora_rank 64 \
---model_type pixtral-12b \
---sft_type lora \
---dataset data/swift/train_10k.jsonl
-
-# Qwen (can train)
+#### 10k training data with qwen2-vl-7b-instruct
 
 swift sft \
 --rescale_image 240000 \
@@ -584,9 +593,32 @@ swift sft \
 --sft_type lora \
 --dataset data/swift/train_10k.jsonl
 
+# Manual infer and test
 swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 --val_dataset data/swift/test.jsonl
 python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623/infer_result/20241002-013038.jsonl outputs/retrieve/test/colpali.json outputs/swift_qwen_10k/colpali/top_k=5.json
 
+# Automatic infer and test
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen \
+output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623
+[35:50<00:00, 21.50s/it, score=3.99]
+
+# 10k -> 18k training data improves performance slightly
+
+swift sft \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_18k.jsonl
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-18k \
+output/qwen2-vl-7b-instruct/v37-20241018-235007/checkpoint-1125
+[22:05<00:00, 13.26s/it, score=4.02]
+
+################################################################################
 # Ablation: Training single-page, testing multi-page
 python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_single_page.jsonl --use_gold_page_only
 python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test_single_page.jsonl --is_test
@@ -606,6 +638,94 @@ swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v17-20241002-173257/checkpoin
 python data_loading.py read_swift_qwen_preds output/qwen2-vl-7b-instruct/v17-20241002-173257/checkpoint-623/infer_result/20241011-162621.jsonl outputs/retrieve/test/colpali_sample_100.json outputs/swift_qwen_10k_single_page/colpali/top_k=5.json
 python evaluation.py run_multi_judge outputs/swift_qwen_10k_single_page/colpali/top_k=5.json
 # swift_qwen_10k_single_page      3.96     3.99     3.95  4.20    4.02   3.65  3.96
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train_qwen_single_page \
+output/qwen2-vl-7b-instruct/v17-20241002-173257/checkpoint-623
+[36:40<00:00, 22.01s/it, score=3.94]
+
+################################################################################
+# Three epochs instead of one
+swift sft \
+--num_train_epochs 3 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_10k.jsonl
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train_qwen_3_epochs \
+output/qwen2-vl-7b-instruct/v19-20241015-141048/checkpoint-1869
+[25:17<00:00, 15.17s/it, score=3.98]
+
+################################################################################
+# Full-parameter instead of lora
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NPROC_PER_NODE=8 swift sft \
+--sft_type full \
+--freeze_vit true \
+--rescale_image 240000 \
+--max_length 6144 \
+--model_type qwen2-vl-7b-instruct \
+--dataset data/swift/train_10k.jsonl
+
+sleep 1800 && bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train_qwen_full_params \
+output/qwen2-vl-7b-instruct/v20-20241015-142637/checkpoint-623
+[29:30<00:00, 17.70s/it, score=3.94]
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-4gpu-maxlen-8192-lora-target-all \
+output/qwen2-vl-7b-instruct/v33-20241017-180302/checkpoint-600
+[27:14<00:00, 16.34s/it, score=3.9]
+
+################################################################################
+# Contrastive (Needs at least 2x A800)
+
+python data_loading.py make_swift_qwen_data outputs/qwen/colpali/top_k=5_remove_gold_train*.json --path_out data/swift/train_10k_with_reject.jsonl --use_pred_as_reject_response
+
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 swift rlhf \
+--rlhf_type orpo \
+--beta 0.1 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_10k_with_reject.jsonl
+
+python data_loading.py make_swift_qwen_data outputs/qwen/colpali/top_k=5_remove_gold_train*.json --path_out data/swift/train_10k_with_reject_single_page.jsonl --use_pred_as_reject_response --use_gold_page_only
+
+swift rlhf \
+--rlhf_type orpo \
+--beta 0.1 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_10k_with_reject_single_page.jsonl
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-with-reject-single-page \
+output/qwen2-vl-7b-instruct/v38-20241019-000933/checkpoint-623
+[21:08<00:00, 12.69s/it, score=3.98]
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-use-dora \
+output/qwen2-vl-7b-instruct/v36-20241018-200841/checkpoint-623
+[20:19<00:00, 12.20s/it, score=3.94]
+
+################################################################################
+# Pixtral cuda error
+CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC_PER_NODE=4 swift sft \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type pixtral-12b \
+--sft_type lora \
+--dataset data/swift/train_10k.jsonl
 
 ################################################################################
 Annotation data
