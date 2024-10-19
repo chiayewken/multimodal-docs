@@ -217,6 +217,7 @@ p question_generation.py generate_questions data/train/*.json --path_out data/qu
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train2.json --questions_per_doc 9 --use_answer
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train3.json --questions_per_doc 9 --use_answer --random_seed 3
 p question_generation.py generate_questions data/train/*.json --path_out data/questions/train4.json --questions_per_doc 9 --use_answer --random_seed 4
+p question_generation.py generate_questions data/train/*.json --path_out data/questions/train5.json --questions_per_doc 36 --use_answer
 """
 
 

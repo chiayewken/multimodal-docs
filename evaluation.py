@@ -188,6 +188,7 @@ python evaluation.py test_retriever data/questions/train.json --retriever_name c
 python evaluation.py test_retriever data/questions/train2.json --retriever_name colpali --path outputs/retrieve/train2/colpali.json
 python evaluation.py test_retriever data/questions/train3.json --retriever_name colpali --path outputs/retrieve/train3/colpali.json
 python evaluation.py test_retriever data/questions/train4.json --retriever_name colpali --path outputs/retrieve/train4/colpali.json
+python evaluation.py test_retriever data/questions/train5.json --retriever_name colpali --path outputs/retrieve/train5/colpali.json
 python evaluation.py test_retriever outputs/retrieve/test/colpali_sample_100.json --retriever_name colqwen --path outputs/retrieve/test/colqwen_sample_100.json
 
                                  path  text  figure  table   all
