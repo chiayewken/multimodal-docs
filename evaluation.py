@@ -309,6 +309,7 @@ p evaluation.py generate_answers outputs/retrieve/train/colpali.json --retriever
 p evaluation.py generate_answers outputs/retrieve/train2/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train2
 p evaluation.py generate_answers outputs/retrieve/train3/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train3
 p evaluation.py generate_answers outputs/retrieve/train4/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train4
+p evaluation.py generate_answers outputs/retrieve/train5/colpali.json --retriever_name colpali --generator_name qwen --remove_gold_page --output_suffix train5
 p evaluation.py run_multi_judge outputs/qwen/colpali/top_k=5_remove_gold_train.json -> 2.8 which is expected as these are deliberate bad predictions without gold page
 
 """

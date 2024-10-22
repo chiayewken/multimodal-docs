@@ -43,6 +43,9 @@ krippendorff==0.7.0
 xformers==0.0.27.post2
 bitsandbytes==0.43.3
 vllm==0.6.2
-git+https://github.com/modelscope/ms-swift.git@45354f7
+#ms-swift==2.5.0.post1
+ms-swift==2.4.2.post2
 pyav==13.0.0
 setuptools==69.5.1
+auto_gptq==0.7.1
+optimum==1.23.1
