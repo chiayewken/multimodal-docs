@@ -746,6 +746,11 @@ class CustomSwiftQwenModel(SwiftQwenModel):
     path: str = "output/qwen2-vl-7b-instruct/v37-20241018-235007/checkpoint-1125-merged"  # train-qwen-18k
 
 
+class Custom18kContrastiveSwiftQwenModel(SwiftQwenModel):
+    # swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v43-20241023-011224/checkpoint-1125 --merge_lora true
+    path: str = "output/qwen2-vl-7b-instruct/v43-20241023-011224/checkpoint-1125-merged"  # train-qwen-18k-with-reject-top-k-3
+
+
 class IdeficsModel(EvalModel):
     engine: str = "models/idefics"  # Optimized for long interleaved cases
     model: Optional[Idefics2ForConditionalGeneration] = None
@@ -1185,6 +1190,7 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         highres_qwen=HighresQwenModel,
         swift_qwen=SwiftQwenModel,
         custom_swift_qwen=CustomSwiftQwenModel,
+        custom_18k_contrastive_swift_qwen=Custom18kContrastiveSwiftQwenModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:

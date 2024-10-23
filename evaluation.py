@@ -283,6 +283,8 @@ p evaluation.py generate_answers_and_judgements --data_path outputs/retrieve/tes
 [15:53<00:00,  9.54s/it, score=3.77]
 p evaluation.py generate_answers_and_judgements --data_path outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name custom_swift_qwen
 [16:00<00:00,  9.60s/it, score=4]
+p evaluation.py generate_answers_and_judgements --data_path outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name custom_18k_contrastive_swift_qwen
+[17:32<00:00, 10.53s/it, score=4]
 
 ################################################################################
 Alternative settings (text-only and full-image)
