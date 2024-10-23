@@ -20,6 +20,13 @@ from openai.lib.azure import AzureOpenAI
 from pydantic import BaseModel
 from qwen_vl_utils import process_vision_info
 from reka.client import Reka
+from swift.llm import (
+    get_model_tokenizer,
+    ModelType,
+    get_default_template_type,
+    get_template,
+    inference,
+)
 from transformers import (
     PaliGemmaForConditionalGeneration,
     PaliGemmaProcessor,
@@ -36,7 +43,12 @@ from transformers import (
     BatchEncoding,
 )
 
-from data_loading import load_image_from_url, convert_image_to_text, MultimodalDocument
+from data_loading import (
+    load_image_from_url,
+    convert_image_to_text,
+    save_image,
+    MultimodalDocument,
+)
 from onevision import (
     load_pretrained_model,
     process_images,
@@ -692,6 +704,48 @@ class GemmaModel(EvalModel):
             return self.processor.decode(generation, skip_special_tokens=True)
 
 
+class SwiftQwenModel(EvalModel):
+    # https://github.com/modelscope/ms-swift/blob/main/docs/source_en/Multi-Modal/qwen2-vl-best-practice.md
+    path: str = ""
+    model: Optional[Qwen2VLForConditionalGeneration] = None
+    tokenizer: Optional[PreTrainedTokenizer] = None
+    engine: str = ModelType.qwen2_vl_7b_instruct
+    image_size: int = 768
+    image_dir: str = "data/qwen_images"
+
+    def load(self):
+        if self.model is None or self.tokenizer is None:
+            self.model, self.tokenizer = get_model_tokenizer(
+                self.engine,
+                torch.bfloat16,
+                model_kwargs={"device_map": "auto"},
+                model_id_or_path=self.path or None,
+            )
+
+    def run(self, inputs: List[Union[str, Image.Image]]) -> str:
+        self.load()
+        template_type = get_default_template_type(self.engine)
+        self.model.generation_config.max_new_tokens = self.max_output_tokens
+        template = get_template(template_type, self.tokenizer)
+
+        text = "\n\n".join([x for x in inputs if isinstance(x, str)])
+        content = []
+        for x in inputs:
+            if isinstance(x, Image.Image):
+                path = save_image(resize_image(x, self.image_size), self.image_dir)
+                content.append(f"<img>{path}</img>")
+        content.append(text)
+
+        query = "".join(content)
+        response, history = inference(self.model, template, query)
+        return response
+
+
+class CustomSwiftQwenModel(SwiftQwenModel):
+    # swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v37-20241018-235007/checkpoint-1125 --merge_lora true
+    path: str = "output/qwen2-vl-7b-instruct/v37-20241018-235007/checkpoint-1125-merged"  # train-qwen-18k
+
+
 class IdeficsModel(EvalModel):
     engine: str = "models/idefics"  # Optimized for long interleaved cases
     model: Optional[Idefics2ForConditionalGeneration] = None
@@ -1129,6 +1183,8 @@ def select_model(model_name: str, **kwargs) -> EvalModel:
         text_only_azure=TextOnlyAzureModel,
         text_only_qwen=TextOnlyQwenModel,
         highres_qwen=HighresQwenModel,
+        swift_qwen=SwiftQwenModel,
+        custom_swift_qwen=CustomSwiftQwenModel,
     )
     model_class = model_map.get(model_name)
     if model_class is None:
@@ -1241,6 +1297,7 @@ p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern
 python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name llava
 python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name phi
 python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name pixtral
+python modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name swift_qwen
 
 """
 

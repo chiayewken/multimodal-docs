@@ -54,7 +54,7 @@ def generate_answers(
     use_full_image: bool = False,
     remove_gold_page: bool = False,
     output_suffix: str = "",
-):
+) -> str:
     generator = select_model(generator_name)
     data = MultimodalData.load(data_path)
     path_out = Path(output_dir, generator_name, retriever_name, f"{top_k=}.json")
@@ -101,6 +101,8 @@ def generate_answers(
             sample.generator = generator_name
             print(sample.model_dump_json(indent=2))
             print(sample.model_dump_json(), file=f)
+
+    return str(path_out)
 
 
 def extract_score(text) -> int:
@@ -177,6 +179,19 @@ def run_multi_judge(
         print(sample.model_dump_json(indent=2))
         progress.set_postfix(score=sum(scores) / len(scores))
     data.save(data_path)
+
+
+def generate_answers_and_judgements(
+    judge_names: List[str] = (
+        "azure",
+        "claude-3-5-sonnet-20240620",
+        "gemini-1.5-pro-002",
+    ),
+    use_answer: bool = False,
+    **kwargs,
+):
+    path = generate_answers(**kwargs)
+    run_multi_judge(path, judge_names=judge_names, use_answer=use_answer)
 
 
 """
@@ -262,6 +277,12 @@ p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=10.json
 p evaluation.py run_multi_judge outputs/qwen/colpali_sample_100/top_k=20.json
 
 p analysis.py test_results outputs/*/colpali_sample_100/top_k=*.json --sort_key "path"
+
+# Eval custom trained models
+p evaluation.py generate_answers_and_judgements --data_path outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name swift_qwen
+[15:53<00:00,  9.54s/it, score=3.77]
+p evaluation.py generate_answers_and_judgements --data_path outputs/retrieve/test/colpali_sample_100.json --retriever_name colpali_sample_100 --generator_name custom_swift_qwen
+[16:00<00:00,  9.60s/it, score=4]
 
 ################################################################################
 Alternative settings (text-only and full-image)
