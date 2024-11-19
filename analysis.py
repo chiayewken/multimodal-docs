@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import random
 import re
 from ast import literal_eval
@@ -943,6 +944,49 @@ def compare_qwen_answers(path_a: str, path_b: str, path_out: str):
     save_multimodal_document(content, path_out, pagesize=(595, 595 * 2))
 
 
+def test_question_lengths(*paths: str):
+    question_lengths = []
+    answer_lengths = []
+    for p in paths:
+        data = MultimodalData.load(p)
+        for sample in data.samples:
+            question_lengths.append(len(sample.question.split()))
+            answer_lengths.append(len(sample.pred.split()))
+
+    print(np.mean(question_lengths), np.mean(answer_lengths))
+
+
+def test_mmlongbench_lengths(path: str = "data/mmlongbenchdoc.json"):
+    question_lengths = []
+    answer_lengths = []
+    with open(path) as f:
+        data = json.load(f)
+
+    print(len(data))
+    for item in data:
+        question = item["question"]
+        answer = item["answer"]
+        question_lengths.append(len(question.split()))
+        answer_lengths.append(len(answer.split()))
+
+    print(np.mean(question_lengths), np.mean(answer_lengths))
+
+
+def test_slidevqa_lengths(path: str = "data/slidevqa.jsonl"):
+    question_lengths = []
+    answer_lengths = []
+
+    with open(path) as f:
+        for line in f:
+            item = json.loads(line)
+            question = item["question"]
+            answer = item["answer"]
+            question_lengths.append(len(question.split()))
+            answer_lengths.append(len(answer.split()))
+
+    print(np.mean(question_lengths), np.mean(answer_lengths))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -1017,6 +1061,7 @@ p analysis.py test_question_distribution outputs/azure/colpali/top_k=5.json --va
 p analysis.py test_human_agreement data/annotation/score_checking_100_hp.xlsx
 p analysis.py test_pairwise_judge_agreement data/annotation/score_checking_100_hp.xlsx
 p analysis.py compare_qwen_answers outputs/qwen/colpali/top_k=5.json outputs/swift_qwen_10k/colpali/top_k=5.json --path_out renders/qwen_vs_ours.pdf
+p analysis.py test_question_lengths outputs/swift_qwen/colpali/top_k=5.json
 """
 
 
