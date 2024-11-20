@@ -130,7 +130,7 @@ def prepare_document_context(
 def run_multi_judge(
     data_path: str,
     judge_names: List[str] = (
-        "azure",
+        "gpt-4o-2024-05-13",
         "claude-3-5-sonnet-20240620",
         "gemini-1.5-pro-002",
     ),
@@ -183,7 +183,7 @@ def run_multi_judge(
 
 def generate_answers_and_judgements(
     judge_names: List[str] = (
-        "azure",
+        "gpt-4o-2024-05-13",
         "claude-3-5-sonnet-20240620",
         "gemini-1.5-pro-002",
     ),

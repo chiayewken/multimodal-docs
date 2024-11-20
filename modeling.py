@@ -1289,6 +1289,7 @@ p modeling.py test_run_many --model_name gemini-1.5-pro-001
 p modeling.py test_run_many --model_name gpt-4o-2024-05-13
 p modeling.py test_run_many --model_name claude-3-5-sonnet-20240620
 
+p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name gpt-4o-2024-05-13
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name azure
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name claude-3-5-sonnet-20240620
 p modeling.py test_model_on_document data/test/NYSE_FBHS_2023.json --name intern (good)
