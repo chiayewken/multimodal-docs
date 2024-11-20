@@ -391,6 +391,7 @@ def make_qwen_train_inputs(
     sample: MultimodalSample,
     top_k: int,
     use_gold_page_only: bool = False,
+    ensure_has_gold_page: bool = False,
     documents: dict = None,
 ) -> Tuple[str, List[Image.Image]]:
     # Adapted from evaluation.py generate_answers
@@ -403,6 +404,10 @@ def make_qwen_train_inputs(
 
     assert sample.retrieved_pages
     sample.retrieved_pages = sorted(sample.retrieved_pages[:top_k])
+    if ensure_has_gold_page and sample.evidence_pages[0] not in sample.retrieved_pages:
+        sample.retrieved_pages.pop()
+        sample.retrieved_pages.append(sample.evidence_pages[0])
+        sample.retrieved_pages = sorted(sample.retrieved_pages)
 
     context = []
     for p in doc.pages:
@@ -503,6 +508,8 @@ def make_swift_qwen_data(
     is_test: bool = False,
     use_gold_page_only: bool = False,
     use_pred_as_reject_response: bool = False,
+    ensure_has_gold_page: bool = False,
+    top_k: int = 5,
 ):
     print(locals())
     total = 0
@@ -517,8 +524,9 @@ def make_swift_qwen_data(
                 assert sample.answer.strip() != "" or is_test
                 text, images = make_qwen_train_inputs(
                     sample,
-                    top_k=5,
+                    top_k=top_k,
                     use_gold_page_only=use_gold_page_only,
+                    ensure_has_gold_page=ensure_has_gold_page,
                     documents=documents,
                 )
 
@@ -535,7 +543,6 @@ def make_swift_qwen_data(
 
 def get_latest_infer_file(path: str) -> str:
     # eg output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 -> .../checkpoint-623/infer_result/20241002-013038.jsonl
-    assert Path(path).name.startswith("checkpoint")
     output = ""
     latest_date = 0
     latest_time = 0
@@ -546,6 +553,7 @@ def get_latest_infer_file(path: str) -> str:
             output = str(p)
             latest_date, latest_time = date, time
 
+    assert output != "", path
     print(dict(latest_infer_file=output))
     return output
 
@@ -579,6 +587,7 @@ Training data
 
 python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_10k.jsonl
 python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_18k.jsonl
+python data_loading.py make_swift_qwen_data outputs/retrieve/train*/colpali.json --path_out data/swift/train_18k_ensure_gold.jsonl --ensure_has_gold_page
 
 python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali.json --path_out data/swift/test.jsonl --is_test
 python data_loading.py make_swift_qwen_data outputs/retrieve/test/colpali_sample_100.json --path_out data/swift/test_sample_100.jsonl --is_test 
@@ -602,6 +611,65 @@ bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
 outputs_swift/train-qwen \
 output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623
 [35:50<00:00, 21.50s/it, score=3.99]
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-copy \
+output/qwen2-vl-7b-instruct/v49-20241029-165533/checkpoint-623
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-18k-copy \
+output/qwen2-vl-7b-instruct/v48-20241029-165522/checkpoint-1125
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-18k-with-reject-topk-3-copy \
+output/qwen2-vl-7b-instruct/v50-20241029-165648/checkpoint-1125
+
+# eval full data (1051 samples)
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali.json \
+outputs_swift/train-qwen-full-eval \
+output/qwen2-vl-7b-instruct/v49-20241029-165533/checkpoint-623
+
+swift infer --ckpt_dir output/qwen2-vl-7b-instruct/v49-20241029-165533/checkpoint-623 --use_hf --push_to_hub --
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali.json \
+outputs_swift/train-qwen-18k-full-eval \
+output/qwen2-vl-7b-instruct/v48-20241029-165522/checkpoint-1125
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali.json \
+outputs_swift/train-qwen-18k-with-reject-topk-3-full-eval \
+output/qwen2-vl-7b-instruct/v50-20241029-165648/checkpoint-1125
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali.json \
+outputs_swift/train-qwen-with-reject-topk-3-full-eval \
+output/qwen2-vl-7b-instruct/v51-20241030-121238/checkpoint-623
+
+p analysis.py test_results outputs_swift/*full-eval/eval_outputs.json
+
+# Eval base qwen2-vl-7b-instruct
+bash scripts/eval_swift_base.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/qwen-base \
+qwen2-vl-7b-instruct \
+/root/.cache/modelscope/hub/qwen/Qwen2-VL-7B-Instruct
+3.77
+
+# eval full data for ablation (ensure gold and gold only) (1051 samples)
+
+bash scripts/eval_swift_gold_only.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-eval-gold-only \
+output/qwen2-vl-7b-instruct/v49-20241029-165533/checkpoint-623
+
+bash scripts/eval_swift_ensure_gold.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-eval-ensure-gold \
+output/qwen2-vl-7b-instruct/v49-20241029-165533/checkpoint-623
+
+p analysis.py test_results \
+outputs_swift/train-qwen-eval-gold-only/eval_outputs.json \
+outputs_swift/train-qwen-eval-ensure-gold/eval_outputs.json
+
+          path  academic  product  finance  text  figure  table   all
+0  ensure-gold      3.89     4.19     4.16  4.36    4.01   3.83  4.08
+1    gold-only      4.00     4.33     4.32  4.45    4.31   3.88  4.22
 
 # 10k -> 18k training data improves performance slightly
 
@@ -696,6 +764,32 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 swift rlhf \
 --dataset data/swift/train_10k_with_reject.jsonl
 
 python data_loading.py make_swift_qwen_data outputs/qwen/colpali/top_k=5_remove_gold_train*.json --path_out data/swift/train_10k_with_reject_single_page.jsonl --use_pred_as_reject_response --use_gold_page_only
+python data_loading.py make_swift_qwen_data outputs/qwen/colpali/top_k=5_remove_gold_train*.json --path_out data/swift/train_10k_with_reject_top_k_3.jsonl --use_pred_as_reject_response --top_k 3
+python data_loading.py make_swift_qwen_data outputs/qwen/colpali/top_k=5_remove_gold_train*.json --path_out data/swift/train_18k_with_reject_top_k_3.jsonl --use_pred_as_reject_response --top_k 3
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC_PER_NODE=4 swift rlhf \
+--rlhf_type orpo \
+--beta 0.1 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_10k_with_reject_top_k_3.jsonl
+
+bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
+outputs_swift/train-qwen-train_10k_with_reject_top_k_3 \
+output/qwen2-vl-7b-instruct/v40-20241019-202806/checkpoint-623
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 NPROC_PER_NODE=4 swift rlhf \
+--rlhf_type orpo \
+--beta 0.1 \
+--rescale_image 240000 \
+--max_length 6144 \
+--lora_rank 64 \
+--model_type qwen2-vl-7b-instruct \
+--sft_type lora \
+--dataset data/swift/train_18k_with_reject_top_k_3.jsonl
 
 swift rlhf \
 --rlhf_type orpo \
