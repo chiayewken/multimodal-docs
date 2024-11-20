@@ -15,6 +15,7 @@ import krippendorff
 import numpy as np
 import pandas as pd
 import tiktoken
+from datasets import load_dataset
 from fire import Fire
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -982,6 +983,19 @@ def test_slidevqa_lengths(path: str = "data/slidevqa.jsonl"):
             question = item["question"]
             answer = item["answer"]
             question_lengths.append(len(question.split()))
+            answer_lengths.append(len(answer.split()))
+
+    print(np.mean(question_lengths), np.mean(answer_lengths))
+
+
+def test_docvqa_lengths():
+    question_lengths = []
+    answer_lengths = []
+
+    data = load_dataset("lmms-lab/DocVQA", "DocVQA", split="validation")
+    for sample in tqdm(data):
+        question_lengths.append(len(sample["question"].split()))
+        for answer in sample["answers"]:
             answer_lengths.append(len(answer.split()))
 
     print(np.mean(question_lengths), np.mean(answer_lengths))
