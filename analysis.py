@@ -888,7 +888,91 @@ def test_human_agreement(path: str):
         np.array(judge_scores), np.array(human_scores)
     )
     print(dict(correlation=correlation, p_value=p_value))
+
+    # Plot the distribution of scores between human and model scores
+    counts_judge = [0] * 5
+    counts_human = [0] * 5
+    for score in judge_scores:
+        counts_judge[round(score) - 1] += 1
+    for score in human_scores:
+        counts_human[round(score) - 1] += 1
+
+    print(dict(judge=counts_judge, human=counts_human))
+
+    dist_judge = [round(x / sum(counts_judge) * 100, 1) for x in counts_judge]
+    dist_human = [round(x / sum(counts_human) * 100, 1) for x in counts_human]
+    print(dict(judge=dist_judge, human=dist_human))
+
+    print(dict(avg_judge=np.mean(judge_scores), avg_human=np.mean(human_scores)))
     breakpoint()
+
+
+def test_question_types(
+    path: str = "data/annotation/score_checking_100_hp.xlsx",
+    path_out: str = "data/annotation/question_types_100.csv",
+):
+    df = pd.read_excel(path)
+    print(df.shape)
+
+    model = select_model("claude")
+    instruction = "Based on the question, assign category labels from the following list. If a question is applicable to multiple labels, separate the labels with commas. Give only the labels without any additional information."
+    instruction += "\n1. Analytical Reasoning and Pattern Recognition: Questions about trends, comparisons, and implications (e.g., engagement trends, performance trends)"
+    instruction += "\n2. Technical Analysis: Questions about specific technical details (e.g., UEFI BIOS, shutter speeds, X-sync speeds) and applications of technical concepts."
+    instruction += "\n3. Commonsense and Domain Knowledge: Questions requiring general knowledge or background knowledge in fields such as finance, cybersecurity, photography."
+    instruction += "\n4. Predictive Analysis: Questions about expected outcomes or forecasting changes based on given information."
+    instruction += "\n5. Visual Interpretation: Questions based on interpreting icons, diagrams, or charts."
+    instruction += "\n6. Mathematical Reasoning: Questions involving mathematical concepts or calculation from data and tables."
+    instruction += "\nExample question: In the provided diagram, the set \( B \) is represented by a vertical line intersecting the triangle at points \( p \) and \( q \). Given that \( p \) and \( q \) are maximal elements in \( B \) but \( \argmax_B H = \{p\} \), explain why \( q \) is not obtained via the maximum entropy principle and discuss the implications of this for the optimization of injective monotones in preordered spaces."
+    instruction += "\nExample labels: Mathematical Reasoning"
+    instruction += "\nQuestion: "
+
+    df["label"] = ""
+    counts = {}
+
+    for i, row in tqdm(df.iterrows()):
+        question = row["question"]
+        if not row["label"]:
+            if "figure" in row["content_category"]:
+                question = f"Based on the figure or diagram: {question}"
+            if "table" in row["content_category"]:
+                question = f"Based on the table image: {question}"
+            result = model.run([instruction + question])
+            result = result.split(":")[-1].strip()
+            labels = [x.strip() for x in result.split(",") if x.strip()]
+            print(dict(question=question, result=result, labels=labels))
+            print(counts)
+            df.at[i, "label"] = ", ".join(labels)
+            for lab in labels:
+                counts[lab] = counts.get(lab, 0) + 1
+
+    print(dict(counts=counts, total=sum(counts.values())))
+    df.to_csv(path_out, index=False)
+
+
+def test_question_self_bias(*paths: str):
+    for p in paths:
+        data = MultimodalData.load(p)
+
+        scores_self = []
+        scores_other = []
+        for sample in data.samples:
+            score = np.mean([j.score for j in sample.judgements])
+            model_name = Path(p).parts[1].split("-")[0]
+            if model_name in sample.annotator:
+                scores_self.append(score)
+            else:
+                scores_other.append(score)
+
+        print(dict(path=p, self=np.mean(scores_self), other=np.mean(scores_other)))
+
+
+def export_question_types(
+    path: str = "data/annotation/question_types_100.csv",
+    path_out: str = "data/annotation/question_types_100.xlsx",
+):
+    df = pd.read_csv(path)
+    df = df[["domain", "content_category", "question", "label"]]
+    df.to_excel(path_out, index=False)
 
 
 def test_pairwise_judge_agreement(path: str):
@@ -1076,6 +1160,7 @@ p analysis.py test_human_agreement data/annotation/score_checking_100_hp.xlsx
 p analysis.py test_pairwise_judge_agreement data/annotation/score_checking_100_hp.xlsx
 p analysis.py compare_qwen_answers outputs/qwen/colpali/top_k=5.json outputs/swift_qwen_10k/colpali/top_k=5.json --path_out renders/qwen_vs_ours.pdf
 p analysis.py test_question_lengths outputs/swift_qwen/colpali/top_k=5.json
+p analysis.py test_question_self_bias outputs/*/colpali/top_k=5.json
 """
 
 
