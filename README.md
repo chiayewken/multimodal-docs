@@ -9,27 +9,9 @@ conda-pack -n docs -o env.tar.gz
 
 ### Inference Demo
 
-Run model prediction on several questions with GPT-4V for the whole AMLX financial report (texts, tables, figures).
+Download testing data and run inference (processing, retrieval, question-answering)
 
 ```
-cd data/demo
-unzip NASDAQ_AMLX_2022.zip
-cd ../..
-python demo.py main --generator_name openai_vision --data_dir data/demo/NASDAQ_AMLX_2022 --top_k 10 --output_dir outputs/demo/amlx
-```
-
-### API Setup
-
-[Gemini Pro](https://ai.google.dev/tutorials/python_quickstart?hl=en) (multimodal): Please create a file
-named `gemini_vision_info.json`
-
-```
-{"engine": "gemini-pro-vision", "key": "your_api_key"}
-```
-
-[GPT-4(V)](https://platform.openai.com/docs/guides/vision) (multimodal): Please create a file
-named `openai_vision_info.json`
-
-```
-{"engine": "gpt-4-vision-preview", "key": "your_api_key"}
+python data_loading.py download_pdfs data/test/metadata.csv data/test
+python demo.py main
 ```

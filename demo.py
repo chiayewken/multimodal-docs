@@ -12,7 +12,7 @@ def main(
     path: str = "data/test/NYSE_FBHS_2023.pdf",
     query: str = "Can you explain the stock price trend based on the graph?",
     retriever_name: str = "colpali",
-    generator_name: str = "claude-3-5-sonnet-20240620",
+    generator_name: str = "qwen",
     top_k: int = 5,
 ):
     print(locals())
