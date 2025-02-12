@@ -5,13 +5,16 @@ From https://www.manualslib.com/brand/a-link/, click all model links which have 
 Save the pdf page link in crawl_outputs.csv
 """
 import json
+import random
 import re
 from pathlib import Path
 from typing import List
 
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from fire import Fire
+from pydantic import BaseModel
 from tqdm import tqdm
 
 
@@ -29,7 +32,7 @@ def get_soup(url):
     return BeautifulSoup(response.content, "html.parser")
 
 
-def get_brand_pages(url: str, min_subcategories: int = 2) -> List[dict]:
+def get_brand_pages(url: str) -> List[dict]:
     # eg input: https://www.manualslib.com/brand/T.html
     # brands with more subcategories likely have more manuals
     soup = get_soup(url)
@@ -93,12 +96,81 @@ def save_brands(path_out: str = "data/crawl/brands.json"):
                 print(json.dumps(info), file=f)
 
 
+class BrandInfo(BaseModel):
+    name: str
+    url: str
+    subcategories: List[str]
+    manuals: List[str] = []
+
+    def append_save(self, path: str):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as f:
+            print(self.json(), file=f)
+
+
+class BrandData(BaseModel):
+    brands: List[BrandInfo] = []
+
+    @classmethod
+    def load(cls, path: str):
+        with open(path) as f:
+            return cls(brands=[json.loads(line) for line in tqdm(f.readlines())])
+
+    def save(self, path: str):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            for brand in tqdm(self.brands):
+                print(brand.json(), file=f)
+
+
+def save_manuals_info(path_in: str, path_out: str, seed: int = 0):
+    Path(path_out).parent.mkdir(parents=True, exist_ok=True)
+    data = BrandData.load(path_in)
+    data.brands = sorted(data.brands, key=lambda x: x.name)
+
+    random.seed(seed)
+    random.shuffle(data.brands)
+    print([brand.name for brand in data.brands][:5])
+
+    seen = set()
+    if Path(path_out).exists():
+        seen = set(brand.name for brand in BrandData.load(path_out).brands)
+
+    for brand in tqdm(data.brands):
+        if brand.name in seen:
+            continue
+
+        if len(brand.subcategories) > 1:
+            brand.manuals = get_manual_pages(brand.url)
+            print(brand.dict())
+
+        brand.append_save(path_out)
+
+
+def export_manuals_info(path: str, path_out: str):
+    data = []
+    for brand in BrandData.load(path).brands:
+        for url in brand.manuals:
+            info = dict(**brand.dict(), manual_url=url)
+            info.pop("manuals")
+            data.append(info)
+
+    df = pd.DataFrame(data)
+    print(df)
+    print(df.shape)
+    df.to_csv(path_out, index=False)
+    print(dict(unique_urls=len(df["manual_url"].unique())))
+
+
 """
 python crawler.py get_letter_pages
 python crawler.py get_brand_pages https://www.manualslib.com/brand/lit.html
 python crawler.py get_brand_pages https://www.manualslib.com/brand/A.html
 python crawler.py get_manual_pages https://www.manualslib.com/brand/abqindustrial/ --min_pages 10
 python crawler.py save_brands
+python crawler.py save_manuals_info data/crawl/brands.json data/crawl/brands_with_manuals.json
+python crawler.py test_manuals_info data/crawl/brands_with_manuals.json
+python crawler.py export_manuals_info data/crawl/brands_with_manuals.json data/crawl/manuals.csv
 """
 
 
