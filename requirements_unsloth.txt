@@ -1,0 +1,16 @@
+# conda create -n unsloth python=3.11 -y
+# conda activate unsloth
+# pip install -r requirements_unsloth.txt
+accelerate==1.3.0
+bitsandbytes==0.45.2
+datasets==3.2.0
+huggingface-hub==0.28.1
+peft==0.14.0
+sentencepiece==0.2.0
+torch==2.5.1
+transformers==4.48.2
+triton==3.1.0
+trl==0.14.0
+unsloth==2025.2.5
+unsloth_zoo==2025.2.3
+xformers==0.0.29
