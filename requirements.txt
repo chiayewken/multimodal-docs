@@ -47,3 +47,4 @@ git+https://github.com/modelscope/ms-swift.git@45354f7
 pyav==13.0.0
 setuptools==69.5.1
 beautifulsoup4==4.12.3
+pdf2image==1.17.0

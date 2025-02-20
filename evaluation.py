@@ -245,6 +245,8 @@ p analysis.py test_results outputs/*/colpali/top_k=5.json
 
 p analysis.py test_results outputs/*/colpali/top_k=5.json --valid_path data/annotation/valid_questions.json
 
+# This is the paper reported (except custom qwen)
+
                          path  text  figure  table   all
 0                   onevision  4.03    3.57   3.30  3.62
 1                 custom_qwen  4.07    3.84   3.49  3.79

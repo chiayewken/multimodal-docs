@@ -14,6 +14,7 @@ import fitz  # imports the pymupdf library
 import krippendorff
 import numpy as np
 import pandas as pd
+import requests
 import tiktoken
 from datasets import load_dataset
 from fire import Fire
@@ -1085,6 +1086,106 @@ def test_docvqa_lengths():
     print(np.mean(question_lengths), np.mean(answer_lengths))
 
 
+def load_tatdqa_data():
+    url = "https://huggingface.co/datasets/next-tat/TAT-DQA/raw/main/tatdqa_dataset_test_gold.json"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        return data
+    else:
+        raise Exception(f"Failed to load data: {response.status_code}")
+
+
+def test_lengths():
+    data = load_dataset("HuggingFaceM4/ChartQA", split="test")
+    lengths = []
+    for sample in data:
+        for answer in sample["label"]:
+            lengths.append(len(answer.split()))
+    print(dict(chartqa=np.mean(lengths)))
+
+    data = load_dataset("LIME-DATA/infovqa", split="train")
+    lengths = []
+    for sample in data:
+        for answer in sample["answers"]:
+            lengths.append(len(answer.split()))
+    print(dict(infovqa=np.mean(lengths)))
+
+    data = load_tatdqa_data()
+    lengths = []
+    for sample in data:
+        for question in sample["questions"]:
+            answer = str(question["answer"])
+            lengths.append(len(str(answer).split()))
+    print(dict(tatdqa=np.mean(lengths)))
+
+    data = load_dataset("visualwebbench/VisualWebBench", name="webqa", split="test")
+    lengths = []
+    for sample in data:
+        for answer in sample["answer"]:
+            lengths.append(len(answer.split()))
+    print(dict(visualwebbench_webqa=np.mean(lengths)))
+
+    data = load_dataset("lmms-lab/MP-DocVQA", split="val", columns=["answers"])
+    lengths = []
+    for sample in data:
+        lst = literal_eval(sample["answers"])
+        assert isinstance(lst, list)
+        for answer in lst:
+            lengths.append(len(answer.split()))
+    print(dict(mp_docvqa=np.mean(lengths)))
+
+    data = load_dataset("jordyvl/DUDE_loader", split="train")
+    lengths = []
+    for sample in data:
+        for answer in sample["answers"]:
+            lengths.append(len(answer.split()))
+    print(dict(dude=np.mean(lengths)))
+
+
+def test_samples(path: str = "outputs/retrieve/test/colpali.json"):
+    data = MultimodalData.load(path)
+    print(
+        dict(
+            questions=len(data.samples),
+            unique_sources=len(set(s.source for s in data.samples)),
+        )
+    )
+
+
+def export_data_for_multipage_annotation(path: str, path_out: str):
+    data = MultimodalData.load(path)
+    random.seed(0)
+    records = []
+    groups = {}
+
+    sample: MultimodalSample
+    for sample in data.samples:
+        groups.setdefault(sample.source, []).append(sample)
+    print(dict(groups=len(groups)))
+    print(dict(sources=len(set(sample.source for sample in data.samples))))
+
+    for source, samples in groups.items():
+        questions = [
+            f"{i + 1}. {s.question} ({s.evidence_pages[0]})"
+            for i, s in enumerate(samples)
+        ]
+        records.append(
+            dict(
+                document=Path(source).with_suffix(".pdf"),
+                single_page_questions="\n".join(questions),
+                multi_page_question="",
+                evidence_pages="",
+            )
+        )
+
+    df = pd.DataFrame(records)
+    print(df.shape)
+    print(df.head())
+    df.to_excel(Path(path_out).with_suffix(".xlsx"), index=False)
+    print(Path(path_out).with_suffix(".xlsx"))
+
+
 """
 p analysis.py test_pdf_reader raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
 p analysis.py test_load_from_pdf raw_data/annual_reports_2022_selected/NASDAQ_VERV_2022.pdf
@@ -1161,6 +1262,7 @@ p analysis.py test_pairwise_judge_agreement data/annotation/score_checking_100_h
 p analysis.py compare_qwen_answers outputs/qwen/colpali/top_k=5.json outputs/swift_qwen_10k/colpali/top_k=5.json --path_out renders/qwen_vs_ours.pdf
 p analysis.py test_question_lengths outputs/swift_qwen/colpali/top_k=5.json
 p analysis.py test_question_self_bias outputs/*/colpali/top_k=5.json
+p analysis.py export_data_for_multipage_annotation outputs/qwen/colpali/top_k=5.json data/annotation/multipage_for_annotation.pdf
 """
 
 
