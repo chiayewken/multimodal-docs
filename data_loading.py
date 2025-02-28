@@ -613,6 +613,12 @@ swift export \
 --hub_token 'd0c26255-457a-422c-b1b6-ad23acd14978' \
 --merge_lora true
 
+swift export \
+--ckpt_dir output/qwen2-vl-7b-instruct/v12-20241001-202206/checkpoint-623 \
+--push_to_hub true \
+--hub_model_id chiayewken/multimodal-longdoc-qwen2-vl-lora \
+--hub_token 'd0c26255-457a-422c-b1b6-ad23acd14978'
+
 # Automatic infer and test
 bash scripts/eval_swift.sh outputs/retrieve/test/colpali_sample_100.json \
 outputs_swift/train-qwen \
